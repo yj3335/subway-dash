@@ -1,0 +1,20 @@
+services:
+  mongo:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  cassandra:
+    image: cassandra:4.1
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    environment:
+      - CASSANDRA_CLUSTER_NAME=subway_dash
+
+volumes:
+  mongo_data:
+  cassandra_data:
