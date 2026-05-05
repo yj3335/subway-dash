@@ -11,6 +11,13 @@ from serving.db_clients import get_cassandra_session
 
 API_URL = os.environ.get("SUBWAY_DASH_API_URL", "http://localhost:8000")
 
+_ALERT_COLORS = {
+    "NORMAL":   [0, 200, 0],
+    "MODERATE": [255, 200, 0],
+    "SEVERE":   [220, 0, 0],
+}
+_NO_DATA_COLOR = [128, 128, 128]
+
 st.set_page_config(page_title="Subway Dash", layout="wide")
 st.title("Subway Dash — Live Congestion")
 
@@ -26,6 +33,7 @@ def load_stations() -> pd.DataFrame:
 
 
 def load_station_statuses() -> pd.DataFrame:
+    """Returns latest congestion doc per station from the API, or empty DataFrame on failure."""
     try:
         resp = requests.get(f"{API_URL}/api/v1/stations/all", timeout=5)
         resp.raise_for_status()
@@ -35,8 +43,25 @@ def load_station_statuses() -> pd.DataFrame:
     docs = resp.json()
     if not docs:
         return pd.DataFrame()
-    return pd.DataFrame(docs)[["complex_name", "alert_level", "congestion_score",
-                                "avg_arrival_delay_secs", "event_timestamp", "weather_bucket"]]
+    return pd.DataFrame(docs)
+
+
+def build_map_data(stations_df: pd.DataFrame, statuses_df: pd.DataFrame) -> pd.DataFrame:
+    """Merge bridge lat/lon with congestion statuses; add color column for PyDeck."""
+    if statuses_df.empty:
+        df = stations_df.copy()
+        df["alert_level"] = "N/A"
+        df["congestion_score"] = None
+        df["avg_arrival_delay_secs"] = None
+    else:
+        df = stations_df.merge(
+            statuses_df[["station_complex_id", "alert_level", "congestion_score", "avg_arrival_delay_secs"]],
+            on="station_complex_id",
+            how="left",
+        )
+        df["alert_level"] = df["alert_level"].fillna("N/A")
+    df["color"] = df["alert_level"].map(lambda lvl: _ALERT_COLORS.get(lvl, _NO_DATA_COLOR))
+    return df
 
 
 def load_times_sq_hourly() -> pd.DataFrame:
@@ -49,18 +74,20 @@ def load_times_sq_hourly() -> pd.DataFrame:
     df = pd.DataFrame(list(rows), columns=["hour_of_day", "avg_entries"])
     if df.empty:
         return df
-    # average across all days of week for a clean hourly profile
     return df.groupby("hour_of_day", as_index=False)["avg_entries"].mean().sort_values("hour_of_day")
 
 
-# --- Map ---
+# --- Fetch data ---
 stations = load_stations()
+statuses = load_station_statuses()
+map_df = build_map_data(stations, statuses)
 
+# --- Map ---
 layer = pydeck.Layer(
     "ScatterplotLayer",
-    data=stations,
+    data=map_df,
     get_position="[lon, lat]",
-    get_fill_color=[220, 0, 0],
+    get_fill_color="color",
     get_radius=200,
     pickable=True,
 )
@@ -68,18 +95,22 @@ layer = pydeck.Layer(
 view = pydeck.ViewState(latitude=40.73, longitude=-73.98, zoom=11)
 
 st.pydeck_chart(
-    pydeck.Deck(layers=[layer], initial_view_state=view,
-                tooltip={"text": "{name}"}),
+    pydeck.Deck(
+        layers=[layer],
+        initial_view_state=view,
+        tooltip={"text": "{name}\nStatus: {alert_level}\nScore: {congestion_score}\nDelay: {avg_arrival_delay_secs}s"},
+    ),
     use_container_width=True,
 )
 
-# --- Station congestion status (via FastAPI) ---
+# --- Station congestion table ---
 st.subheader("Station Congestion Status")
-statuses = load_station_statuses()
 if statuses.empty:
     st.info("No congestion data yet. Start the API server and run processing/lambda_merge.py.")
 else:
-    st.dataframe(statuses, use_container_width=True)
+    display_cols = ["complex_name", "alert_level", "congestion_score", "avg_arrival_delay_secs",
+                    "event_timestamp", "weather_bucket"]
+    st.dataframe(statuses[display_cols], use_container_width=True)
 
 # --- Cassandra round-trip: Times Sq hourly capacity baseline ---
 st.subheader("Times Sq-42 St — Hourly Capacity Baseline (clear weather)")
