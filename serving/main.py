@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -64,6 +64,20 @@ def stations_all():
     col = get_mongo_collection("speed_layer")
     docs = [_serialize(d) for d in col.aggregate(_LATEST_PER_STATION)]
     return docs
+
+
+@app.get("/api/v1/station/{station_id}/history")
+def station_history(station_id: str, hours: int = 24):
+    col = get_mongo_collection("speed_layer")
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    docs = list(
+        col.find(
+            {"station_complex_id": station_id, "inserted_at": {"$gte": cutoff}},
+            {"_id": 0, "event_timestamp": 1, "congestion_score": 1,
+             "avg_arrival_delay_secs": 1, "alert_level": 1},
+        ).sort("event_timestamp", 1)
+    )
+    return [_serialize(d) for d in docs]
 
 
 @app.get("/api/v1/alerts")
