@@ -1,10 +1,15 @@
+import os
+
 import pandas as pd
 import pydeck
+import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 from processing.config import BRIDGE_PARQUET
-from serving.db_clients import get_cassandra_session, get_mongo_collection
+from serving.db_clients import get_cassandra_session
+
+API_URL = os.environ.get("SUBWAY_DASH_API_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Subway Dash", layout="wide")
 st.title("Subway Dash — Live Congestion")
@@ -20,23 +25,18 @@ def load_stations() -> pd.DataFrame:
     return df.rename(columns={"complex_name": "name"})
 
 
-def load_recent_speed_layer() -> pd.DataFrame:
-    col = get_mongo_collection("speed_layer")
-    docs = list(
-        col.find({}, {"_id": 0,
-                      "complex_name": 1,
-                      "alert_level": 1,
-                      "congestion_score": 1,
-                      "avg_arrival_delay_secs": 1,
-                      "event_timestamp": 1,
-                      "weather_bucket": 1})
-           .sort("inserted_at", -1)
-           .limit(10)
-    )
+def load_station_statuses() -> pd.DataFrame:
+    try:
+        resp = requests.get(f"{API_URL}/api/v1/stations/all", timeout=5)
+        resp.raise_for_status()
+    except Exception as exc:
+        st.warning(f"API unavailable: {exc}")
+        return pd.DataFrame()
+    docs = resp.json()
     if not docs:
-        return pd.DataFrame(columns=["complex_name", "alert_level", "congestion_score",
-                                     "avg_arrival_delay_secs", "event_timestamp", "weather_bucket"])
-    return pd.DataFrame(docs)
+        return pd.DataFrame()
+    return pd.DataFrame(docs)[["complex_name", "alert_level", "congestion_score",
+                                "avg_arrival_delay_secs", "event_timestamp", "weather_bucket"]]
 
 
 def load_times_sq_hourly() -> pd.DataFrame:
@@ -73,13 +73,13 @@ st.pydeck_chart(
     use_container_width=True,
 )
 
-# --- Recent speed-layer updates ---
-st.subheader("Recent Speed-Layer Updates")
-recent = load_recent_speed_layer()
-if recent.empty:
-    st.info("No speed-layer data yet. Run processing/lambda_merge.py to populate.")
+# --- Station congestion status (via FastAPI) ---
+st.subheader("Station Congestion Status")
+statuses = load_station_statuses()
+if statuses.empty:
+    st.info("No congestion data yet. Start the API server and run processing/lambda_merge.py.")
 else:
-    st.dataframe(recent, use_container_width=True)
+    st.dataframe(statuses, use_container_width=True)
 
 # --- Cassandra round-trip: Times Sq hourly capacity baseline ---
 st.subheader("Times Sq-42 St — Hourly Capacity Baseline (clear weather)")
