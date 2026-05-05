@@ -108,6 +108,75 @@ Spark validation:
 
 Status: PASS. The joined date range includes `2026-04-23`, one day beyond the NOAA file's `2026-04-22` max date. This is expected for the available ridership extract; missing weather rows default to `clear` by design.
 
+## Local Batch Baseline
+
+Command:
+
+```bash
+python -m processing.build_baseline \
+  --ridership-weather-input data/ridership_weather_baseline \
+  --lookback-days 0 \
+  --sink parquet
+```
+
+Outputs:
+
+```text
+data/batch/station_capacity_baseline/
+data/batch/station_max_entries/
+```
+
+Spark validation:
+
+- `station_capacity_baseline` rows: `213,268`
+- `station_max_entries` rows: `424`
+- Baseline weather bucket rows:
+  - `clear`: `71,232`
+  - `rain`: `71,228`
+  - `snow`: `70,808`
+- Top station peaks:
+  - station `610`: `23,692`
+  - station `611`: `18,852`
+  - station `448`: `17,193`
+  - station `628`: `15,344`
+  - station `604`: `14,621`
+- Sample cell `station_complex_id = 611`, Spark `day_of_week = 4`, `hour_of_day = 8`, `weather_bucket = clear`:
+  - `avg_entries`: `328.3269230769231`
+  - `std_entries`: `213.7142788547956`
+  - `p95_entries`: `415.0`
+
+Schemas:
+
+```text
+station_capacity_baseline(
+  station_complex_id string,
+  day_of_week int,
+  hour_of_day int,
+  weather_bucket string,
+  avg_entries double,
+  std_entries double,
+  p95_entries double
+)
+
+station_max_entries(
+  station_complex_id string,
+  max_hourly_entries double
+)
+```
+
+Status: PASS. The parquet baseline is ready for local speed-layer testing.
+
+Cassandra write validation:
+
+- Target table `subway_dash.station_capacity_baseline`: `213,268` rows
+- Target table `subway_dash.station_max_entries`: `424` rows
+- Cassandra baseline weather bucket rows:
+  - `clear`: `71,232`
+  - `rain`: `71,228`
+  - `snow`: `70,808`
+
+Status: PASS. Cassandra baseline tables were written and read back successfully.
+
 Run:
 
 ```bash
@@ -138,8 +207,15 @@ PY
 Ready to hand off:
 
 - `data/bridge/station_bridge.parquet/` to Arjun and Yash
-- `data/ridership/clean/` for batch baseline work
-- `data/weather/clean/` for weather bucket baseline work
+- `data/ridership/clean/` for any teammate reruns of batch baseline work
+- `data/weather/clean/` for any teammate reruns of weather bucket baseline work
 - `data/ridership_weather_baseline/` for Phase 2 baseline and analytics work
+- `data/batch/station_capacity_baseline/` for local speed-layer baseline lookup testing
+- `data/batch/station_max_entries/` for local demand intensity normalization testing
 - `docs/join_key_map.md`
 - `docs/phase1_validation.md`
+
+Cassandra target tables:
+
+- `subway_dash.station_capacity_baseline`
+- `subway_dash.station_max_entries`
