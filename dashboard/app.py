@@ -1,21 +1,49 @@
+import pandas as pd
 import pydeck
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
+
+from processing.config import BRIDGE_PARQUET
+from serving.db_clients import get_mongo_collection
 
 st.set_page_config(page_title="Subway Dash", layout="wide")
 st.title("Subway Dash — Live Congestion")
 
-# 5 hardcoded test stations (Times Sq, Grand Central, Atlantic Av, 34 St-Penn, Fulton St)
-TEST_STATIONS = [
-    {"name": "Times Sq-42 St",     "lat": 40.7558, "lon": -73.9878},
-    {"name": "Grand Central-42 St","lat": 40.7527, "lon": -73.9772},
-    {"name": "Atlantic Av-Barclays","lat": 40.6843, "lon": -73.9779},
-    {"name": "34 St-Penn Station", "lat": 40.7506, "lon": -73.9971},
-    {"name": "Fulton St",          "lat": 40.7092, "lon": -74.0072},
-]
+# Refresh every 30 seconds
+st_autorefresh(interval=30_000, key="autorefresh")
+
+
+@st.cache_data
+def load_stations() -> pd.DataFrame:
+    df = pd.read_parquet(BRIDGE_PARQUET, columns=["station_complex_id", "complex_name", "lat", "lon"])
+    df = df.drop_duplicates("station_complex_id")
+    return df.rename(columns={"complex_name": "name"})
+
+
+def load_recent_speed_layer() -> pd.DataFrame:
+    col = get_mongo_collection("speed_layer")
+    docs = list(
+        col.find({}, {"_id": 0,
+                      "complex_name": 1,
+                      "alert_level": 1,
+                      "congestion_score": 1,
+                      "avg_arrival_delay_secs": 1,
+                      "event_timestamp": 1,
+                      "weather_bucket": 1})
+           .sort("inserted_at", -1)
+           .limit(10)
+    )
+    if not docs:
+        return pd.DataFrame(columns=["complex_name", "alert_level", "congestion_score",
+                                     "avg_arrival_delay_secs", "event_timestamp", "weather_bucket"])
+    return pd.DataFrame(docs)
+
+
+stations = load_stations()
 
 layer = pydeck.Layer(
     "ScatterplotLayer",
-    data=TEST_STATIONS,
+    data=stations,
     get_position="[lon, lat]",
     get_fill_color=[220, 0, 0],
     get_radius=200,
@@ -29,3 +57,10 @@ st.pydeck_chart(
                 tooltip={"text": "{name}"}),
     use_container_width=True,
 )
+
+st.subheader("Recent Speed-Layer Updates")
+recent = load_recent_speed_layer()
+if recent.empty:
+    st.info("No speed-layer data yet. Run processing/lambda_merge.py to populate.")
+else:
+    st.dataframe(recent, use_container_width=True)
