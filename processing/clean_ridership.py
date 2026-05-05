@@ -26,29 +26,43 @@ def clean_ridership_dataframe(df, *, source_timezone: str = "America/New_York"):
     timestamp_col = find_column(columns, ["transit_timestamp", "Transit Timestamp", "timestamp"])
     station_col = find_column(columns, ["station_complex_id", "Station Complex ID", "Complex ID"])
     entries_col = find_column(columns, ["entries", "ridership", "Ridership"])
+    transit_mode_col = find_column(columns, ["transit_mode", "Transit Mode"], required=False)
     complex_name_col = find_column(columns, ["station_complex", "Station Complex", "complex_name"], required=False)
 
-    timestamp_exprs = [F.to_timestamp(F.col(timestamp_col), fmt) for fmt in TIMESTAMP_FORMATS]
-    timestamp_exprs.append(F.to_timestamp(F.col(timestamp_col)))
+    timestamp_exprs = [F.try_to_timestamp(F.col(timestamp_col), F.lit(fmt)) for fmt in TIMESTAMP_FORMATS]
+    timestamp_exprs.append(F.try_to_timestamp(F.col(timestamp_col)))
     parsed_ts = reduce(lambda left, right: F.coalesce(left, right), timestamp_exprs)
 
-    selected = df.select(
+    selected = (
+        df.filter(F.lower(F.col(transit_mode_col)) == "subway") if transit_mode_col else df
+    ).select(
         F.col(station_col).cast("string").alias("station_complex_id"),
-        F.col(complex_name_col).cast("string").alias("station_complex_name")
-        if complex_name_col
-        else F.lit(None).cast("string").alias("station_complex_name"),
-        F.col(entries_col).cast("double").alias("entries"),
+        (
+            F.col(complex_name_col).cast("string").alias("station_complex_name")
+            if complex_name_col
+            else F.lit(None).cast("string").alias("station_complex_name")
+        ),
+        F.regexp_replace(F.col(entries_col).cast("string"), ",", "").cast("double").alias("ridership_value"),
         F.to_utc_timestamp(parsed_ts, source_timezone).alias("transit_timestamp"),
     )
 
-    return (
+    cleaned = (
         selected.filter(F.col("transit_timestamp").isNotNull())
         .filter(F.col("station_complex_id").isNotNull())
-        .filter(F.col("entries").isNotNull() & (F.col("entries") >= 0))
+        .filter(F.col("ridership_value").isNotNull() & (F.col("ridership_value") >= 0))
         .withColumn("date", F.to_date("transit_timestamp"))
         .withColumn("hour_of_day", F.hour("transit_timestamp"))
         .withColumn("day_of_week", F.dayofweek("transit_timestamp"))
     )
+
+    return cleaned.groupBy(
+        "station_complex_id",
+        "station_complex_name",
+        "transit_timestamp",
+        "date",
+        "hour_of_day",
+        "day_of_week",
+    ).agg(F.sum("ridership_value").alias("entries"))
 
 
 def validate_against_bridge(clean_df, bridge_path: str):
