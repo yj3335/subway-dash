@@ -4,7 +4,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 from processing.config import BRIDGE_PARQUET
-from serving.db_clients import get_mongo_collection
+from serving.db_clients import get_cassandra_session, get_mongo_collection
 
 st.set_page_config(page_title="Subway Dash", layout="wide")
 st.title("Subway Dash — Live Congestion")
@@ -39,6 +39,21 @@ def load_recent_speed_layer() -> pd.DataFrame:
     return pd.DataFrame(docs)
 
 
+def load_times_sq_hourly() -> pd.DataFrame:
+    session = get_cassandra_session()
+    rows = session.execute(
+        "SELECT hour_of_day, avg_entries "
+        "FROM subway_dash.station_capacity_baseline "
+        "WHERE station_complex_id = '613' AND weather_bucket = 'clear'"
+    )
+    df = pd.DataFrame(list(rows), columns=["hour_of_day", "avg_entries"])
+    if df.empty:
+        return df
+    # average across all days of week for a clean hourly profile
+    return df.groupby("hour_of_day", as_index=False)["avg_entries"].mean().sort_values("hour_of_day")
+
+
+# --- Map ---
 stations = load_stations()
 
 layer = pydeck.Layer(
@@ -58,9 +73,18 @@ st.pydeck_chart(
     use_container_width=True,
 )
 
+# --- Recent speed-layer updates ---
 st.subheader("Recent Speed-Layer Updates")
 recent = load_recent_speed_layer()
 if recent.empty:
     st.info("No speed-layer data yet. Run processing/lambda_merge.py to populate.")
 else:
     st.dataframe(recent, use_container_width=True)
+
+# --- Cassandra round-trip: Times Sq hourly capacity baseline ---
+st.subheader("Times Sq-42 St — Hourly Capacity Baseline (clear weather)")
+hourly = load_times_sq_hourly()
+if hourly.empty:
+    st.info("No baseline data yet. Run processing/build_baseline.py --sink cassandra to populate.")
+else:
+    st.line_chart(hourly.set_index("hour_of_day")["avg_entries"])
