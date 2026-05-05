@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from processing.config import (
@@ -81,6 +81,16 @@ def with_socrata_limit(url: str, limit: int | None) -> str:
 
 
 def ridership_resource_url(resource_id: str, *, since: str | None = None, limit: int | None = None) -> str:
+    return ridership_resource_page_url(resource_id, since=since, limit=limit, offset=None)
+
+
+def ridership_resource_page_url(
+    resource_id: str,
+    *,
+    since: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> str:
     params: dict[str, object] = {
         "$select": ",".join(RIDERSHIP_SELECT_COLUMNS),
         "$order": "transit_timestamp",
@@ -89,7 +99,65 @@ def ridership_resource_url(resource_id: str, *, since: str | None = None, limit:
         params["$where"] = f"transit_timestamp >= '{since}T00:00:00'"
     if limit:
         params["$limit"] = int(limit)
+    if offset:
+        params["$offset"] = int(offset)
     return f"https://data.ny.gov/resource/{resource_id}.csv?{urllib.parse.urlencode(params)}"
+
+
+def download_ridership_resource_pages(
+    resource_id: str,
+    destination: Path,
+    *,
+    since: str,
+    row_limit: int | None,
+    page_size: int,
+    skip_existing: bool,
+) -> None:
+    if skip_existing and destination.exists() and destination.stat().st_size > 0:
+        print(f"exists: {destination}")
+        return
+
+    ensure_parent(destination)
+    part_path = destination.with_suffix(destination.suffix + ".part")
+    if part_path.exists():
+        part_path.unlink()
+
+    total_rows = 0
+    offset = 0
+    wrote_header = False
+    with part_path.open("wb") as output:
+        while True:
+            remaining = None if row_limit is None else max(row_limit - total_rows, 0)
+            if remaining == 0:
+                break
+            limit = min(page_size, remaining) if remaining is not None else page_size
+            url = ridership_resource_page_url(resource_id, since=since, limit=limit, offset=offset)
+            print(f"downloading ridership page offset={offset:,} limit={limit:,}")
+            try:
+                with urllib.request.urlopen(url, timeout=120) as response:
+                    payload = response.read()
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                if part_path.exists():
+                    part_path.unlink()
+                raise RuntimeError(f"HTTP {exc.code} while downloading {url}\n{body[:2000]}") from exc
+
+            lines = payload.splitlines(keepends=True)
+            if not lines:
+                break
+            data_lines = lines[1:] if wrote_header else lines
+            if data_lines:
+                output.writelines(data_lines)
+            wrote_header = True
+            rows_this_page = max(len(lines) - 1, 0)
+            total_rows += rows_this_page
+            print(f"  rows this page={rows_this_page:,} total={total_rows:,}")
+            if rows_this_page < limit:
+                break
+            offset += rows_this_page
+
+    part_path.replace(destination)
+    print(f"wrote {total_rows:,} rows and {destination.stat().st_size:,} bytes: {destination}")
 
 
 def download_gtfs_static(destination: Path, *, skip_existing: bool = True) -> None:
@@ -111,8 +179,27 @@ def _noaa_get(token: str, params: dict[str, object]) -> dict:
         f"{NOAA_CDO_DATA_URL}?{query}",
         headers={"token": token, "User-Agent": "subway-dash/1.0"},
     )
-    with urllib.request.urlopen(request, timeout=120) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"NOAA CDO HTTP {exc.code}: {body[:2000]}") from exc
+
+
+def split_date_ranges(start_date: str, end_date: str, *, max_days: int = 365) -> list[tuple[str, str]]:
+    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    if end < start:
+        raise ValueError("end_date must be on or after start_date")
+
+    ranges = []
+    current = start
+    while current <= end:
+        chunk_end = min(current + timedelta(days=max_days - 1), end)
+        ranges.append((current.isoformat(), chunk_end.isoformat()))
+        current = chunk_end + timedelta(days=1)
+    return ranges
 
 
 def download_noaa_weather(
@@ -132,29 +219,31 @@ def download_noaa_weather(
     # into one NYC-wide daily row because the runtime model uses a city bucket.
     by_date: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     for station in stations:
-        offset = 1
-        while True:
-            payload = _noaa_get(
-                token,
-                {
-                    "datasetid": "GHCND",
-                    "stationid": station,
-                    "datatypeid": NOAA_DATATYPES,
-                    "startdate": start_date,
-                    "enddate": end_date,
-                    "units": "standard",
-                    "limit": 1000,
-                    "offset": offset,
-                },
-            )
-            results = payload.get("results", [])
-            for row in results:
-                day = row["date"][:10]
-                by_date[day][row["datatype"]].append(float(row["value"]))
-            if len(results) < 1000:
-                break
-            offset += 1000
-            time.sleep(0.25)
+        for chunk_start, chunk_end in split_date_ranges(start_date, end_date):
+            print(f"downloading NOAA station={station} start={chunk_start} end={chunk_end}")
+            offset = 1
+            while True:
+                payload = _noaa_get(
+                    token,
+                    {
+                        "datasetid": "GHCND",
+                        "stationid": station,
+                        "datatypeid": NOAA_DATATYPES,
+                        "startdate": chunk_start,
+                        "enddate": chunk_end,
+                        "units": "standard",
+                        "limit": 1000,
+                        "offset": offset,
+                    },
+                )
+                results = payload.get("results", [])
+                for row in results:
+                    day = row["date"][:10]
+                    by_date[day][row["datatype"]].append(float(row["value"]))
+                if len(results) < 1000:
+                    break
+                offset += 1000
+                time.sleep(0.25)
 
     ensure_parent(destination)
     with destination.open("w", newline="") as handle:
@@ -201,6 +290,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional YYYY-MM-DD filter. Uses faster Socrata resource endpoint with projected columns.",
     )
+    parser.add_argument("--socrata-page-size", type=int, default=50000)
     parser.add_argument("--skip-ridership", action="store_true", help="Download only static GTFS/stations/weather inputs.")
     parser.add_argument("--skip-existing", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--skip-noaa", action="store_true")
@@ -216,35 +306,37 @@ def main() -> None:
         print("skipping ridership download by request")
     else:
         if args.ridership_years in {"all", "2020-2024"}:
-            url = (
-                ridership_resource_url(
+            if args.ridership_since:
+                download_ridership_resource_pages(
                     MTA_HOURLY_RIDERSHIP_2020_2024_RESOURCE_ID,
                     since=args.ridership_since,
-                    limit=args.ridership_limit,
+                    row_limit=args.ridership_limit,
+                    page_size=args.socrata_page_size,
+                    destination=raw_dir / RAW_RIDERSHIP_2020_2024.name,
+                    skip_existing=args.skip_existing,
                 )
-                if args.ridership_since
-                else with_socrata_limit(MTA_HOURLY_RIDERSHIP_2020_2024_CSV_URL, args.ridership_limit)
-            )
-            download_url(
-                url,
-                raw_dir / RAW_RIDERSHIP_2020_2024.name,
-                skip_existing=args.skip_existing,
-            )
+            else:
+                download_url(
+                    with_socrata_limit(MTA_HOURLY_RIDERSHIP_2020_2024_CSV_URL, args.ridership_limit),
+                    raw_dir / RAW_RIDERSHIP_2020_2024.name,
+                    skip_existing=args.skip_existing,
+                )
         if args.ridership_years in {"all", "2025"}:
-            url = (
-                ridership_resource_url(
+            if args.ridership_since:
+                download_ridership_resource_pages(
                     MTA_HOURLY_RIDERSHIP_2025_RESOURCE_ID,
                     since=args.ridership_since,
-                    limit=args.ridership_limit,
+                    row_limit=args.ridership_limit,
+                    page_size=args.socrata_page_size,
+                    destination=raw_dir / RAW_RIDERSHIP_2025.name,
+                    skip_existing=args.skip_existing,
                 )
-                if args.ridership_since
-                else with_socrata_limit(MTA_HOURLY_RIDERSHIP_2025_CSV_URL, args.ridership_limit)
-            )
-            download_url(
-                url,
-                raw_dir / RAW_RIDERSHIP_2025.name,
-                skip_existing=args.skip_existing,
-            )
+            else:
+                download_url(
+                    with_socrata_limit(MTA_HOURLY_RIDERSHIP_2025_CSV_URL, args.ridership_limit),
+                    raw_dir / RAW_RIDERSHIP_2025.name,
+                    skip_existing=args.skip_existing,
+                )
 
     if args.skip_noaa:
         print("skipping NOAA download by request")
