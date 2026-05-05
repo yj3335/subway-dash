@@ -121,7 +121,11 @@ def classify(props: dict[str, Any]) -> dict[str, Any]:
 
 class CassandraWriter:
     def __init__(self, hosts: list[str]) -> None:
-        self._cluster = Cluster(hosts)
+        # Pin protocol_version=5 to skip the downgrade-negotiation handshake
+        # the driver does on each connect against Cassandra 4.1 (which
+        # otherwise prints WARN "Downgrading core protocol version from 66
+        # to 65 to 5"). 5 is the highest version 4.1 supports.
+        self._cluster = Cluster(hosts, protocol_version=5)
         self._session = self._cluster.connect(CASSANDRA_KEYSPACE)
         self._stmt = self._session.prepare(
             "INSERT INTO current_weather "

@@ -1,0 +1,35 @@
+# Subway Dash — pinned dependencies.
+# Install: pip install -r requirements.txt
+#
+# Versions below are exactly what passed the Track A end-to-end test
+# (live MTA → Kafka → Spark Structured Streaming → enriched Parquet)
+# on macOS / Python 3.14 / Java 17.
+#
+# Why pyspark is pinned to 3.5.x:
+#   The spark-sql-kafka-0-10_2.12:3.5.0 Maven package is built against
+#   Scala 2.12. PySpark 4.x ships Spark 4.0 which is Scala 2.13, and the
+#   connector throws `NoSuchMethodError: scala.Predef$.wrapRefArray(...)`
+#   at startup. Stay on 3.5.x.
+
+# --- Streaming + ingestion (Track A) ---
+pyspark==3.5.3
+kafka-python==2.3.1
+gtfs-realtime-bindings==2.0.0
+protobuf==7.34.1
+requests==2.33.1
+
+# --- Storage clients (Tracks A + C) ---
+cassandra-driver==3.30.0
+pymongo==4.17.0
+
+# --- Serving + dashboard (Track C) ---
+fastapi==0.136.1
+uvicorn==0.46.0
+streamlit==1.57.0
+streamlit-autorefresh==1.0.1
+pydeck==0.9.2
+
+# --- Data tooling (Tracks B + ad-hoc validation) ---
+pyarrow==24.0.0
+numpy==2.4.4
+pandas==3.0.2

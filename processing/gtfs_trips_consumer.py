@@ -78,6 +78,11 @@ def build_pipeline(args: argparse.Namespace) -> None:
         .option("subscribe", TOPIC_TRIPS)
         .option("startingOffsets", args.starting_offsets)
         .option("maxOffsetsPerTrigger", args.max_offsets_per_trigger)
+        # Group ID prefix so this consumer shows up under the documented
+        # name in `kafka-consumer-groups.sh --list` (per docs/kafka_config.md).
+        # Spark composes `<prefix>-<UUID>` internally; using kafka.group.id
+        # directly clashes with Spark's offset management and produces a WARN.
+        .option("groupIdPrefix", "spark-trips-consumer")
         .load()
     )
 

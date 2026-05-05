@@ -2,7 +2,6 @@ __pycache__/
 *.pyc
 .env
 data/raw/
-data/staging/
 data/ridership/
 data/weather/
 data/ridership_weather_baseline/

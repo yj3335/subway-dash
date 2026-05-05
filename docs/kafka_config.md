@@ -59,16 +59,26 @@ The `gtfs-alerts` topic uses 2 partitions; the producer applies
 
 ## Consumer groups
 
-| Group ID | Topic(s) | Owner |
-|---|---|---|
-| `spark-vehicle-consumer` | `gtfs-vehicle` | Track A — `gtfs_vehicle_consumer.py` |
-| `spark-trips-consumer` | `gtfs-trips` | Track A — `gtfs_trips_consumer.py` |
-| `gtfs-monitor` | all GTFS topics + DLQ | Track A — `gtfs_monitor.py` |
+| Group ID / prefix | Topic(s) | Owner | Visible in `--list`? |
+|---|---|---|---|
+| `gtfs-monitor` | all GTFS topics + DLQ | Track A — `gtfs_monitor.py` | yes |
+| `spark-vehicle-consumer-<uuid>` | `gtfs-vehicle` | Track A — `gtfs_vehicle_consumer.py` | **no** (see below) |
+| `spark-trips-consumer-<uuid>` | `gtfs-trips` | Track A — `gtfs_trips_consumer.py` | **no** (see below) |
 
-Spark Structured Streaming derives its group ID from the checkpoint location,
-so the values above are the names that show up in `kafka-consumer-groups.sh`
-when those jobs are running. Always pair the same job with the same checkpoint
-directory across restarts.
+**Important — Spark Structured Streaming's Kafka source does not join a Kafka
+consumer group.** It uses the partition-assignment API directly and manages
+offsets through Spark checkpoints. The `groupIdPrefix` option only sets a
+label that appears in broker logs and JMX metrics; the prefix will **not**
+register a group visible to `kafka-consumer-groups --list` or
+`--describe --group spark-vehicle-consumer`.
+
+To check Spark consumer progress, use the Spark UI Streaming tab
+(`http://localhost:8080` → application → Streaming Query) or read the
+checkpoint directory's `offsets/` files. The `gtfs-monitor` group, which
+uses the regular `KafkaConsumer` API, IS visible in `--list`.
+
+The plain Python `gtfs_monitor` consumer always pairs the same checkpoint
+directory with the same job across restarts so it resumes cleanly.
 
 ## Producer settings
 
