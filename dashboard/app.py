@@ -27,9 +27,20 @@ st_autorefresh(interval=30_000, key="autorefresh")
 
 @st.cache_data
 def load_stations() -> pd.DataFrame:
-    df = pd.read_parquet(BRIDGE_PARQUET, columns=["station_complex_id", "complex_name", "lat", "lon"])
+    df = pd.read_parquet(
+        BRIDGE_PARQUET,
+        columns=["station_complex_id", "complex_name", "lat", "lon", "daytime_routes"],
+    )
     df = df.drop_duplicates("station_complex_id")
     return df.rename(columns={"complex_name": "name"})
+
+
+@st.cache_data
+def get_all_lines(stations_df: pd.DataFrame) -> list[str]:
+    lines: set[str] = set()
+    for val in stations_df["daytime_routes"].dropna():
+        lines.update(str(val).split())
+    return sorted(lines)
 
 
 def load_station_statuses() -> pd.DataFrame:
@@ -64,6 +75,16 @@ def build_map_data(stations_df: pd.DataFrame, statuses_df: pd.DataFrame) -> pd.D
     return df
 
 
+def filter_by_lines(map_df: pd.DataFrame, selected_lines: list[str]) -> pd.DataFrame:
+    if not selected_lines:
+        return map_df
+    selected_set = set(selected_lines)
+    mask = map_df["daytime_routes"].apply(
+        lambda r: bool(set(str(r).split()) & selected_set) if pd.notna(r) else False
+    )
+    return map_df[mask]
+
+
 def load_times_sq_hourly() -> pd.DataFrame:
     session = get_cassandra_session()
     rows = session.execute(
@@ -82,10 +103,15 @@ stations = load_stations()
 statuses = load_station_statuses()
 map_df = build_map_data(stations, statuses)
 
+# --- Sidebar: line filter ---
+all_lines = get_all_lines(stations)
+selected_lines = st.sidebar.multiselect("Filter by subway line", all_lines)
+filtered_map_df = filter_by_lines(map_df, selected_lines)
+
 # --- Map ---
 layer = pydeck.Layer(
     "ScatterplotLayer",
-    data=map_df,
+    data=filtered_map_df,
     get_position="[lon, lat]",
     get_fill_color="color",
     get_radius=200,
