@@ -112,6 +112,28 @@ else:
                     "event_timestamp", "weather_bucket"]
     st.dataframe(statuses[display_cols], use_container_width=True)
 
+# --- 24-hour time-series chart (drill-down per station) ---
+with st.expander("Station 24-Hour History"):
+    station_names = stations["name"].sort_values().tolist()
+    selected_name = st.selectbox("Station", station_names, key="history_station")
+    selected_id = stations.loc[stations["name"] == selected_name, "station_complex_id"].values[0]
+
+    try:
+        hist_resp = requests.get(f"{API_URL}/api/v1/station/{selected_id}/history", timeout=5)
+        hist_resp.raise_for_status()
+        hist_docs = hist_resp.json()
+    except Exception as exc:
+        hist_docs = []
+        st.warning(f"Could not load history: {exc}")
+
+    if hist_docs:
+        hist_df = pd.DataFrame(hist_docs)
+        hist_df["event_timestamp"] = pd.to_datetime(hist_df["event_timestamp"])
+        hist_df = hist_df.set_index("event_timestamp").sort_index()
+        st.line_chart(hist_df["congestion_score"])
+    else:
+        st.info("No history yet for this station in the past 24 hours.")
+
 # --- Cassandra round-trip: Times Sq hourly capacity baseline ---
 st.subheader("Times Sq-42 St — Hourly Capacity Baseline (clear weather)")
 hourly = load_times_sq_hourly()
