@@ -138,9 +138,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    paths = [args.stops, args.stations, args.ridership]
-    if Path(args.ridership_2025).exists():
-        paths.append(args.ridership_2025)
+    paths = [args.stops, args.stations]
+    ridership_paths = []
+    for path in [args.ridership, args.ridership_2025]:
+        resolved = Path(path)
+        if resolved.exists() and resolved not in ridership_paths:
+            ridership_paths.append(resolved)
+    if not ridership_paths:
+        raise FileNotFoundError(
+            f"No ridership CSV found. Checked {args.ridership} and {args.ridership_2025}."
+        )
+    paths.extend(str(path) for path in ridership_paths)
     paths.append(args.weather)
     profiles = [profile_csv(Path(path)) for path in paths]
     profile_output = ensure_parent(args.profile_output)
