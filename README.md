@@ -30,11 +30,12 @@ Ingests live GTFS-Realtime feeds, computes per-station congestion scores using a
 
 - Docker Desktop
 - Python 3.8+
-- `pymongo`, `cassandra-driver`, `streamlit`, `pydeck` (see below)
+- Java 17+ for PySpark
+- `pymongo`, `cassandra-driver`, `streamlit`, `pydeck`, `pyspark` (see below)
 
 Install Python dependencies:
 ```bash
-pip install pymongo cassandra-driver streamlit pydeck fastapi uvicorn
+pip install pymongo cassandra-driver streamlit pydeck fastapi uvicorn pyspark
 ```
 
 ---
@@ -62,6 +63,31 @@ python infra/verify_connections.py
 streamlit run dashboard/app.py
 ```
 Dashboard available at `http://localhost:8501`.
+
+---
+
+## Track B Processing Jobs
+
+Preyansh's processing scripts are CLI-driven and default to local paths under `data/`.
+
+```bash
+python -m processing.download_datasets --skip-noaa
+python -m processing.profile_data
+python -m processing.build_bridge_table
+python -m processing.clean_ridership
+python -m processing.clean_weather
+python -m processing.join_ridership_weather
+python -m processing.build_baseline --sink parquet
+```
+
+Set `NOAA_TOKEN` before running `processing.download_datasets` without `--skip-noaa`. Use `--sink cassandra` or `--sink parquet,cassandra` for batch jobs after Spark has the Cassandra connector available.
+
+The downloader fetches both MTA hourly ridership slices by default: `2020-2024` and `Beginning 2025`. Use `--ridership-years 2025` or `--ridership-years 2020-2024` to fetch only one slice.
+
+Run local tests:
+```bash
+python -m unittest discover -v
+```
 
 ---
 
