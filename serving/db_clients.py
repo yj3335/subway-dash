@@ -2,7 +2,6 @@ import os
 from typing import Optional
 from pymongo import MongoClient
 from cassandra.cluster import Cluster
-from cassandra.io.asyncioreactor import AsyncioConnection
 
 _mongo_client: Optional[MongoClient] = None
 _cassandra_cluster: Optional[Cluster] = None
@@ -21,7 +20,7 @@ def get_cassandra_session():
     global _cassandra_cluster, _cassandra_session
     if _cassandra_session is None:
         hosts = os.environ.get("CASSANDRA_HOSTS", "localhost").split(",")
-        _cassandra_cluster = Cluster(hosts, connection_class=AsyncioConnection)
+        _cassandra_cluster = Cluster(hosts)
         _cassandra_session = _cassandra_cluster.connect()
     return _cassandra_session
 
