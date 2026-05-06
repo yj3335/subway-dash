@@ -58,7 +58,48 @@ class SparkJobTests(unittest.TestCase):
         self.assertEqual(baseline.count(), 1)
         self.assertEqual(station_max.collect()[0].max_hourly_entries, 200.0)
 
+    def test_speed_layer_join_uses_event_timestamp(self):
+        from processing.speed_layer_join import build_delay_stream
+
+        vehicles = self.spark.createDataFrame(
+            [
+                {
+                    "trip_id": "trip-1",
+                    "stop_id": "A01N",
+                    "station_complex_id": "611",
+                    "event_timestamp": "2026-05-05 08:00:00",
+                },
+                {
+                    "trip_id": "trip-2",
+                    "stop_id": "A02N",
+                    "station_complex_id": None,
+                    "event_timestamp": "2026-05-05 08:00:00",
+                },
+            ]
+        )
+        delays = self.spark.createDataFrame(
+            [
+                {
+                    "trip_id": "trip-1",
+                    "stop_id": "A01N",
+                    "arrival_delay_secs": 90,
+                    "event_timestamp": "2026-05-05 08:01:00",
+                },
+                {
+                    "trip_id": "trip-1",
+                    "stop_id": "A01N",
+                    "arrival_delay_secs": 30,
+                    "event_timestamp": "2026-05-05 08:04:00",
+                },
+            ]
+        )
+
+        result = build_delay_stream(vehicles, delays)
+        rows = result.collect()
+        self.assertGreater(len(rows), 0)
+        self.assertEqual({row.station_complex_id for row in rows}, {"611"})
+        self.assertEqual({row.avg_arrival_delay_secs for row in rows}, {60.0})
+
 
 if __name__ == "__main__":
     unittest.main()
-

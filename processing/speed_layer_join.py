@@ -21,10 +21,15 @@ def vehicle_schema():
             T.StructField("route_id", T.StringType()),
             T.StructField("vehicle_id", T.StringType()),
             T.StructField("stop_id", T.StringType()),
+            T.StructField("stop_id_base", T.StringType()),
             T.StructField("current_status", T.StringType()),
-            T.StructField("current_stop_sequence", T.IntegerType()),
-            T.StructField("timestamp", T.TimestampType()),
+            T.StructField("current_stop_sequence", T.LongType()),
+            T.StructField("event_timestamp", T.TimestampType()),
             T.StructField("station_complex_id", T.StringType()),
+            T.StructField("complex_name", T.StringType()),
+            T.StructField("lat", T.DoubleType()),
+            T.StructField("lon", T.DoubleType()),
+            T.StructField("event_date", T.DateType()),
         ]
     )
 
@@ -35,11 +40,16 @@ def trip_delay_schema():
     return T.StructType(
         [
             T.StructField("trip_id", T.StringType()),
+            T.StructField("route_id", T.StringType()),
             T.StructField("stop_id", T.StringType()),
+            T.StructField("stop_sequence", T.IntegerType()),
             T.StructField("arrival_delay_secs", T.IntegerType()),
             T.StructField("departure_delay_secs", T.IntegerType()),
             T.StructField("arrival_time_epoch", T.LongType()),
-            T.StructField("timestamp", T.TimestampType()),
+            T.StructField("event_unix_ts", T.LongType()),
+            T.StructField("kafka_ts", T.TimestampType()),
+            T.StructField("event_timestamp", T.TimestampType()),
+            T.StructField("event_date", T.DateType()),
         ]
     )
 
@@ -51,14 +61,14 @@ def build_delay_stream(vehicle_stream, trip_delay_stream):
         "trip_id",
         "stop_id",
         "station_complex_id",
-        F.col("timestamp").alias("vehicle_timestamp"),
+        F.col("event_timestamp").alias("vehicle_timestamp"),
     ).filter(F.col("station_complex_id").isNotNull())
 
     delays = trip_delay_stream.select(
         "trip_id",
         "stop_id",
         F.col("arrival_delay_secs").cast("double").alias("arrival_delay_secs"),
-        F.col("timestamp").alias("trip_timestamp"),
+        F.col("event_timestamp").alias("trip_timestamp"),
     ).filter(F.col("arrival_delay_secs").isNotNull())
 
     joined = vehicles.withWatermark("vehicle_timestamp", "5 minutes").join(
@@ -114,4 +124,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
