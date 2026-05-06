@@ -4,7 +4,7 @@ Used to verify the Streamlit dashboard color-codes markers correctly
 without running the full Kafka → Spark → MongoDB pipeline.
 
 Run:
-    python -m ingestion.inject_speed_layer --station-id 613 --level SEVERE
+    python -m ingestion.inject_speed_layer --station-id 611 --level SEVERE
     # Streamlit refreshes every 30s — check http://localhost:8501:
     # the Times Sq marker should turn red within one refresh cycle.
 """
@@ -29,7 +29,7 @@ _DEFAULTS_BY_LEVEL = {
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Insert a synthetic speed_layer document into MongoDB")
-    p.add_argument("--station-id", default="613", help="station_complex_id (default: 613 = Times Sq-42 St)")
+    p.add_argument("--station-id", default="611", help="station_complex_id (default: 611 = Times Sq-42 St)")
     p.add_argument("--level", choices=["SEVERE", "MODERATE", "NORMAL"], default="SEVERE")
     p.add_argument("--mongo-uri", default=os.environ.get("MONGO_URI", "mongodb://localhost:27017"))
     return p.parse_args()

@@ -1,4 +1,12 @@
 import os
+import sys
+from pathlib import Path
+
+# Streamlit adds the script directory (dashboard/) to sys.path, not the project
+# root. Insert the root explicitly so processing.* and serving.* are importable.
+_project_root = str(Path(__file__).resolve().parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 import pandas as pd
 import pydeck
@@ -90,7 +98,7 @@ def load_times_sq_hourly() -> pd.DataFrame:
     rows = session.execute(
         "SELECT hour_of_day, avg_entries "
         "FROM subway_dash.station_capacity_baseline "
-        "WHERE station_complex_id = '613' AND weather_bucket = 'clear'"
+        "WHERE station_complex_id = '611' AND weather_bucket = 'clear'"
     )
     df = pd.DataFrame(list(rows), columns=["hour_of_day", "avg_entries"])
     if df.empty:
@@ -161,7 +169,7 @@ with st.expander("Station 24-Hour History"):
         st.info("No history yet for this station in the past 24 hours.")
 
 # --- Cassandra round-trip: Times Sq hourly capacity baseline ---
-st.subheader("Times Sq-42 St — Hourly Capacity Baseline (clear weather)")
+st.subheader("Times Sq-42 St (ID 611) — Hourly Capacity Baseline (clear weather)")
 hourly = load_times_sq_hourly()
 if hourly.empty:
     st.info("No baseline data yet. Run processing/build_baseline.py --sink cassandra to populate.")
