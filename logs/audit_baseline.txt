@@ -1,0 +1,6 @@
+=== Pre-run Kafka offsets (baseline) ===
+gtfs-vehicle: 3406
+gtfs-trips: 4018
+gtfs-alerts: 5
+gtfs-dlq: 0
+weather-feed: 1

@@ -1,0 +1,13 @@
+2026-05-05 21:15:24,250 [INFO] kafka.conn: <BrokerConnection client_id=kafka-python-producer-1, node_id=bootstrap-0 host=localhost:9092 <connecting> [IPv6 ('::1', 9092, 0, 0)]>: connecting to localhost:9092 [('::1', 9092, 0, 0) IPv6]
+2026-05-05 21:15:24,255 [INFO] kafka.conn: <BrokerConnection client_id=kafka-python-producer-1, node_id=bootstrap-0 host=localhost:9092 <checking_api_versions_recv> [IPv6 ('::1', 9092, 0, 0)]>: Broker version identified as 2.6
+2026-05-05 21:15:24,255 [INFO] kafka.conn: <BrokerConnection client_id=kafka-python-producer-1, node_id=bootstrap-0 host=localhost:9092 <connected> [IPv6 ('::1', 9092, 0, 0)]>: Connection complete.
+2026-05-05 21:15:24,258 [WARNING] cassandra.cluster: Cluster.__init__ called with contact_points specified, but no load_balancing_policy. In the next major version, this will raise an error; please specify a load-balancing policy. (contact_points = ['localhost'], lbp = None)
+2026-05-05 21:15:24,283 [INFO] cassandra.policies: Using datacenter 'datacenter1' for DCAwareRoundRobinPolicy (via host '127.0.0.1:9042'); if incorrect, please specify a local_dc to the constructor, or limit contact points to local cluster nodes
+2026-05-05 21:15:24,284 [INFO] cassandra.cluster: Cassandra host ::1:9042 removed
+2026-05-05 21:15:24,335 [INFO] weather_poller: weather poller running; station=KNYC interval=900s
+2026-05-05 21:15:24,539 [INFO] weather_poller: current_weather → bucket=clear prcp_in=0.000 tmax_f=None
+2026-05-05 21:15:24,541 [INFO] kafka.conn: <BrokerConnection client_id=kafka-python-producer-1, node_id=1 host=localhost:9092 <connecting> [IPv6 ('::1', 9092, 0, 0)]>: connecting to localhost:9092 [('::1', 9092, 0, 0) IPv6]
+2026-05-05 21:15:24,541 [INFO] kafka.conn: <BrokerConnection client_id=kafka-python-producer-1, node_id=1 host=localhost:9092 <connected> [IPv6 ('::1', 9092, 0, 0)]>: Connection complete.
+2026-05-05 21:15:24,541 [INFO] kafka.conn: <BrokerConnection client_id=kafka-python-producer-1, node_id=bootstrap-0 host=localhost:9092 <connected> [IPv6 ('::1', 9092, 0, 0)]>: Closing connection. 
+2026-05-05 21:30:52,152 [INFO] weather_poller: current_weather → bucket=clear prcp_in=0.000 tmax_f=69.98
+2026-05-05 21:46:37,143 [INFO] weather_poller: current_weather → bucket=clear prcp_in=0.000 tmax_f=69.98
