@@ -1,7 +1,7 @@
 # Track C — Storage, Serving & Dashboard: Design Document
 
 **Owner:** Yash Jain  
-**Last updated:** Week 2
+**Last updated:** Week 7
 
 ---
 
@@ -51,28 +51,77 @@ Weather bucket is included in the partition key because the two most common quer
 
 ---
 
-## Serving layer (`serving/db_clients.py`)
+## Serving layer
 
-A small module that owns all database connections. Both the FastAPI app (Week 5) and any scripts that need DB access import from here — nothing else creates its own connections.
+### `serving/db_clients.py`
 
-**Why module-level singletons?** Streamlit reruns the entire script on every user interaction. Without lazy-init singletons, every button click would open a new MongoDB and Cassandra connection. The module-level globals (`_mongo_client`, `_cassandra_cluster`) are created once on first call and reused. `close_connections()` is provided for clean shutdown in tests or scripts.
+Owns all database connections. Both the FastAPI app and any scripts that need DB access import from here — nothing else creates its own connections.
+
+**Why module-level singletons?** Streamlit reruns the entire script on every user interaction. Without lazy-init singletons, every refresh would open a new MongoDB and Cassandra connection. The module-level globals (`_mongo_client`, `_cassandra_cluster`) are created once on first call and reused. `close_connections()` is provided for clean shutdown in tests or scripts.
 
 Connection strings are read from environment variables (`MONGO_URI`, `CASSANDRA_HOSTS`) so the same code works locally and in Docker without changes.
+
+### `serving/main.py` — FastAPI app
+
+Five routes:
+
+| Route | Method | Description |
+|---|---|---|
+| `/health` | GET | Pings MongoDB and Cassandra; returns `{"status":"ok"}` or `{"status":"degraded"}` with per-DB details |
+| `/api/v1/station/{id}/congestion` | GET | Latest `speed_layer` document for one station; 404 if no data |
+| `/api/v1/station/{id}/history` | GET | Last 24h of `speed_layer` docs for one station, sorted by `event_timestamp` asc. `?hours=N` overrides the window |
+| `/api/v1/stations/all` | GET | Latest document per station (MongoDB aggregation pipeline: sort → group by station → first) |
+| `/api/v1/alerts` | GET | Same as `/stations/all` but filtered to `alert_level ∈ {MODERATE, SEVERE}` |
+
+All routes exclude `_id` from responses; `datetime` fields are serialized to ISO-8601 strings.
+
+Start with: `uvicorn serving.main:app --reload`
 
 ---
 
 ## Dashboard (`dashboard/app.py`)
 
-Currently a scaffold: a PyDeck `ScatterplotLayer` over NYC with 5 hardcoded test stations. The hardcoded stations will be replaced with real coordinates from the bridge table parquet (blocked on Preyansh's Week 2 handoff — see C2.2 in the execution plan).
+### Current state (Week 7 complete)
 
-**Why PyDeck?** It renders WebGL maps inside Streamlit with a single function call and supports the `ScatterplotLayer` → `get_fill_color` pattern we need for green/yellow/red congestion markers. Folium was the alternative but requires HTML embedding and doesn't compose as cleanly with Streamlit's reactive model.
+- **Station map:** 445 stations loaded from `data/bridge/station_bridge.parquet` (deduplicated on `station_complex_id`). Marker color is driven by `alert_level` from the live FastAPI response: green = NORMAL, yellow = MODERATE, red = SEVERE, grey = no data yet.
+- **Hover tooltip:** station name, `alert_level`, `congestion_score`, `avg_arrival_delay_secs`.
+- **30-second autorefresh:** via `streamlit-autorefresh`. The bridge parquet is cached with `@st.cache_data` (loaded once); the API call runs every refresh cycle.
+- **Sidebar line filter:** `st.multiselect` driven by `daytime_routes` from the bridge table. Filters map markers to stations serving the selected lines.
+- **Congestion table:** `st.dataframe` showing latest status per station from `/api/v1/stations/all`.
+- **24h time-series expander:** station selector + line chart of `congestion_score` over the past 24 hours, calling `/api/v1/station/{id}/history`.
+- **Cassandra round-trip section:** Times Sq-42 St hourly capacity baseline (clear weather) as a line chart. Queries Cassandra directly — no API route exists for this.
 
-**Planned evolution of `app.py`:**
-- Week 3: poll MongoDB every 30s via `streamlit-autorefresh`
-- Week 5: all data reads go through FastAPI (no direct DB calls in dashboard)
-- Week 6: color-coded markers driven by `alert_level`
-- Week 7: time-series chart, subway line filter
-- Week 8: forecast widget, alert banner, freshness indicator
+### Why all DB reads go through FastAPI (except the baseline chart)
+
+The design principle from Week 5 is that the dashboard should not query databases directly. All speed-layer reads go through the FastAPI serving layer. The Times Sq baseline chart (C4.2) is an exception: it's a diagnostic section testing the Cassandra connection, and there's no API route for arbitrary station-hour baseline lookups.
+
+**Why PyDeck?** It renders WebGL maps inside Streamlit with a single function call and supports the `ScatterplotLayer` → `get_fill_color` pattern needed for green/yellow/red markers. Folium was the alternative but requires HTML embedding and doesn't compose as cleanly with Streamlit's reactive model.
+
+---
+
+## Testing
+
+### Synthetic speed-layer inject
+
+To test the dashboard without running the full Kafka → Spark pipeline:
+
+```bash
+# Turn Times Sq red (SEVERE)
+python -m ingestion.inject_speed_layer --station-id 613 --level SEVERE
+
+# Turn Times Sq yellow (MODERATE)
+python -m ingestion.inject_speed_layer --station-id 613 --level MODERATE
+```
+
+The dashboard will reflect the change within 30 seconds (one autorefresh cycle).
+
+### Performance test
+
+```bash
+python -m unittest tests.test_dashboard_perf -v
+```
+
+Tests the local data operations (parquet read + pandas merge + line extraction) against time budgets. All pass at < 500ms combined, which is the local portion of the 2-second end-to-end target.
 
 ---
 
@@ -90,31 +139,44 @@ Preyansh (PySpark batch + speed layer)
         │                    │
         └─────────┬──────────┘
                   ▼
-            FastAPI (Week 5)
+            FastAPI (serving/main.py)
                   │
                   ▼
             Streamlit dashboard
 ```
 
-The Lambda merge (Preyansh's `lambda_merge.py`) is the only writer to MongoDB. Cassandra has two writers: Preyansh's batch jobs write the baseline tables; Arjun's NWS poller writes `current_weather`. Track C is read-only at runtime — it never writes to either database.
+The Lambda merge (`lambda_merge.py`) is the only writer to MongoDB. Cassandra has two writers: Preyansh's batch jobs write the baseline tables; Arjun's NWS poller writes `current_weather`. Track C is read-only at runtime — it never writes to either database.
 
 ---
 
 ## Setup
 
 ```bash
-# Start databases
-cd infra && docker compose up -d
+# Start full stack (Kafka, Spark, MongoDB, Cassandra)
+cd infra && docker compose up -d && cd ..
 
 # First-time only: create MongoDB TTL index
 python infra/init_mongo.py
 
-# Verify both connections
+# Apply Cassandra schema (idempotent — safe to re-run)
+docker exec subway_cassandra cqlsh -e "$(cat infra/cassandra_schema.cql)"
+
+# Verify connections
 python infra/verify_connections.py
 
-# Apply Cassandra schema (idempotent — safe to re-run)
-docker exec -i infra-cassandra-1 cqlsh localhost < infra/cassandra_schema.cql
+# Start the serving layer
+uvicorn serving.main:app --reload
 
-# Run dashboard
+# Start the dashboard (separate terminal)
 streamlit run dashboard/app.py
 ```
+
+---
+
+## Remaining (Weeks 8–10)
+
+| Week | Task |
+|---|---|
+| W8 | Next-hour forecast widget (queries `station_capacity_baseline` at `current_hour + 1`). Alert banner (SEVERE / MODERATE / all-clear). Data freshness timestamp from `inserted_at`. |
+| W9 | 2-hour user acceptance test. Fix all P0 bugs. Test empty-state handling (producer down → dashboard recovers within 35s of restart). |
+| W10 | MTA line branding in tooltips. Loading spinners. Empty-state polish. 3-minute demo video (cold start → normal → synthetic SEVERE → recovery). Final submission package. |
