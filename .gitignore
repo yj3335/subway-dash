@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .env
+.venv/
+venv/
 data/raw/
 data/ridership/
 data/weather/
@@ -8,3 +10,10 @@ data/ridership_weather_baseline/
 data/batch/
 data/debug/
 checkpoints/
+
+# Spark Structured Streaming bookkeeping. Bakes the writer's absolute
+# path (file:///Users/.../staging/...) into JSON, which breaks downstream
+# `spark.read.parquet(<root>)` on any other machine. The Parquet partition
+# subdirectories are portable on their own (read with PyArrow/Pandas, or
+# `spark.read.parquet("data/staging/vehicle_positions/event_date=*")`).
+**/_spark_metadata/
