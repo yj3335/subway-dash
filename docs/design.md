@@ -101,7 +101,7 @@ Start with: `uvicorn serving.main:app --reload`
 
 ### Why all DB reads go through FastAPI
 
-The design principle from Week 5 is that the dashboard should not query databases directly. All speed-layer and baseline reads go through the FastAPI serving layer. The forecast tab uses the new `/forecast` endpoint added in Week 10 — no Cassandra calls from the dashboard.
+The design principle from Week 5 is that the dashboard should not query databases directly. All speed-layer reads go through the `/stations/all`, `/station/{id}/congestion`, `/station/{id}/history`, and `/alerts` endpoints. Baseline reads use the `/station/{id}/baseline` endpoint (full 24-hour profile) and `/station/{id}/forecast` (next-hour point estimate). No direct MongoDB or Cassandra calls from the dashboard.
 
 **Why PyDeck?** It renders WebGL maps inside Streamlit with a single function call and supports the `ScatterplotLayer` → `get_fill_color` pattern needed for colored markers. The CARTO dark-matter style is loaded via a direct style URL, keeping the map visually consistent with the MTA dark theme.
 

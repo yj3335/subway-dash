@@ -18,7 +18,6 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 from processing.config import BRIDGE_PARQUET
-from serving.db_clients import get_cassandra_session
 
 API_URL = os.environ.get("SUBWAY_DASH_API_URL", "http://localhost:8000")
 
@@ -139,20 +138,21 @@ def get_all_lines(stations_df: pd.DataFrame) -> list[str]:
 
 
 @st.cache_data(ttl=3600)
-def load_station_baseline(station_id: str, weather_bucket: str = "clear") -> pd.DataFrame:
+def load_station_baseline(station_id: str) -> pd.DataFrame:
+    """Fetch the full 24-hour baseline via the serving layer."""
     try:
-        session = get_cassandra_session()
-        rows = session.execute(
-            "SELECT hour_of_day, avg_entries "
-            "FROM subway_dash.station_capacity_baseline "
-            "WHERE station_complex_id = %s AND weather_bucket = %s",
-            (station_id, weather_bucket),
+        resp = requests.get(
+            f"{API_URL}/api/v1/station/{station_id}/baseline", timeout=5
         )
-        df = pd.DataFrame(list(rows), columns=["hour_of_day", "avg_entries"])
+        if resp.status_code == 404:
+            return pd.DataFrame()
+        resp.raise_for_status()
+        rows = resp.json()
     except Exception:
         return pd.DataFrame()
-    if df.empty:
-        return df
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
     return df.groupby("hour_of_day", as_index=False)["avg_entries"].mean().sort_values("hour_of_day")
 
 

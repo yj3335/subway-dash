@@ -116,6 +116,26 @@ def station_forecast(station_id: str):
     }
 
 
+@app.get("/api/v1/station/{station_id}/baseline")
+def station_baseline(station_id: str, weather_bucket: str = "clear"):
+    """Full 24-hour hourly baseline for a station (used by the forecast tab)."""
+    try:
+        session = get_cassandra_session()
+        rows = session.execute(
+            "SELECT hour_of_day, avg_entries "
+            "FROM subway_dash.station_capacity_baseline "
+            "WHERE station_complex_id = %s AND weather_bucket = %s",
+            (station_id, weather_bucket),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Cassandra unavailable: {exc}")
+    result = [{"hour_of_day": r.hour_of_day, "avg_entries": r.avg_entries} for r in rows]
+    if not result:
+        raise HTTPException(status_code=404, detail=f"No baseline for station {station_id!r}")
+    return result
+
+
+
 @app.get("/api/v1/alerts")
 def alerts():
     col = get_mongo_collection("speed_layer")
