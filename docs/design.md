@@ -107,10 +107,10 @@ To test the dashboard without running the full Kafka → Spark pipeline:
 
 ```bash
 # Turn Times Sq red (SEVERE)
-python -m ingestion.inject_speed_layer --station-id 613 --level SEVERE
+python -m ingestion.inject_speed_layer --station-id 611 --level SEVERE
 
 # Turn Times Sq yellow (MODERATE)
-python -m ingestion.inject_speed_layer --station-id 613 --level MODERATE
+python -m ingestion.inject_speed_layer --station-id 611 --level MODERATE
 ```
 
 The dashboard will reflect the change within 30 seconds (one autorefresh cycle).
