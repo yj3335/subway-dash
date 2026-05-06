@@ -29,14 +29,13 @@ Ingests live GTFS-Realtime feeds, computes per-station congestion scores using a
 ## Prerequisites
 
 - Docker Desktop
-- Python 3.8+
+- Python 3.11 (3.12+ removes `asyncore`, breaking `cassandra-driver`)
 - Java 17+ for PySpark
-- `pymongo`, `cassandra-driver`, `streamlit`, `pydeck`, `pyspark` (see below)
+- See `requirements.txt` / `requirements-lock.txt` for pinned dependencies
 
 Install Python dependencies:
 ```bash
-pip install pymongo cassandra-driver streamlit pydeck fastapi uvicorn pyspark \
-            kafka-python requests gtfs-realtime-bindings protobuf
+pip install -r requirements.txt
 ```
 
 ---
@@ -101,9 +100,9 @@ Target end-to-end latency: marker turns yellow/red within 60 seconds.
 **Track C — dashboard color test** (no Kafka/Spark needed, just MongoDB + FastAPI):
 ```bash
 # Inject a SEVERE doc directly into MongoDB speed_layer
-python -m ingestion.inject_speed_layer --station-id 613 --level SEVERE
+python -m ingestion.inject_speed_layer --station-id 611 --level SEVERE
 ```
-Times Sq marker turns red within 30 seconds (one Streamlit autorefresh cycle).
+Times Sq-42 St marker (station_complex_id 611) turns red within 30 seconds (one Streamlit autorefresh cycle).
 
 ---
 
