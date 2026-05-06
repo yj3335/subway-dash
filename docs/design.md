@@ -86,12 +86,13 @@ Start with: `uvicorn serving.main:app --reload`
 
 - **MTA dark theme:** `.streamlit/config.toml` sets `primaryColor=#0039A6`, `backgroundColor=#0E1117`, matching MTA brand guidelines.
 - **MTA branded header:** Full-width dark-blue header bar with the SUBWAY DASH wordmark.
-- **Station map:** 445 stations on a CARTO dark-matter basemap with `pitch=30` for a 3D tilt. Marker radius uses an exponential curve `80 + √(score) × 500` — low-congestion stations are small dots; severe stations are visually dominant. Color encodes alert level: blue = NORMAL, orange = MODERATE, red = SEVERE, grey = no data.
-- **HTML tooltip:** Rich popup with MTA line badges (colored per official line palette), alert level, congestion score, and delay.
-- **KPI tiles:** Alert count, SEVERE count, worst-station banner — styled with colored left-border accents.
+- **Station map:** 445 stations on a CARTO dark-matter basemap with `pitch=30` for a 3D tilt. Marker radius uses a linear curve `100 + score × 300` clipped to `[100, 400]`. Color encodes alert level: green = NORMAL, orange = MODERATE, red = SEVERE, grey = no data.
+- **HTML tooltip:** Rich popup with MTA line badges (colored per official line palette), alert level, a rider-friendly crowding label (Quiet / Moderate / Busy / Very Busy), and delay formatted in minutes (e.g. "~2 min").
+- **Station table:** Shows crowding label and delay in minutes instead of raw numeric values; sorted SEVERE-first.
+- **KPI tiles:** Station count, SEVERE/MODERATE/NORMAL counts, last-updated age — styled with colored left-border accents.
 - **Threshold reference lines:** Altair history chart shows MODERATE (0.20) and SEVERE (0.50) reference lines so the trend is readable against the scale.
 - **Toast escalation:** `st.toast()` fires when any station transitions into SEVERE, tracked via `st.session_state["prev_alerts"]`.
-- **System health strip:** Inline status indicators for MongoDB, Cassandra, and API — surfaced in the sidebar so operators can diagnose connectivity without leaving the page.
+- **System health strip:** Inline status indicators for MongoDB, Cassandra, and API — surfaced below the header so operators can diagnose connectivity without leaving the page.
 - **Freshness indicator:** Sidebar shows last-fetch age; turns orange with a warning if data is >90 seconds stale.
 - **30-second autorefresh:** via `streamlit-autorefresh`. Bridge parquet cached with `@st.cache_data`; API calls run every cycle.
 - **Sidebar line filter:** `st.multiselect` over `daytime_routes`; filters map markers and table rows.
