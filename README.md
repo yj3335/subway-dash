@@ -42,6 +42,26 @@ pip install -r requirements.txt
 
 ## Quick Start
 
+**One-command local demo**
+```bash
+./scripts/run_end_to_end.sh
+```
+
+The script starts Docker infra, initializes Cassandra/MongoDB, optionally
+loads the Cassandra batch baseline from `data/ridership_weather_baseline/`,
+starts GTFS/weather ingestion, Spark consumers, Track B speed layer, Lambda
+merge, FastAPI, and Streamlit. Logs and PIDs are written under
+`logs/e2e_<timestamp>/`. Stop with `Ctrl+C`; Docker containers are left
+running for inspection.
+
+Useful overrides:
+```bash
+LOAD_BASELINE=0 ./scripts/run_end_to_end.sh
+CLEAN_TRACK_B=0 ./scripts/run_end_to_end.sh
+STARTING_OFFSETS=earliest ./scripts/run_end_to_end.sh
+START_DASHBOARD=0 ./scripts/run_end_to_end.sh
+```
+
 **1. Start the full stack** (Kafka, Zookeeper, Spark, Mongo, Cassandra)
 ```bash
 cd infra
