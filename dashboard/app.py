@@ -11,7 +11,6 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 import altair as alt
-import numpy as np
 import pandas as pd
 import pydeck
 import requests
@@ -187,6 +186,32 @@ def load_station_statuses() -> pd.DataFrame:
 # Map data helpers
 # ---------------------------------------------------------------------------
 
+def _crowding_label(score: float) -> str:
+    """Translate the internal congestion score into a rider-friendly label."""
+    if score >= 0.50:
+        return "Very Busy"
+    if score >= 0.20:
+        return "Busy"
+    if score >= 0.05:
+        return "Moderate"
+    return "Quiet"
+
+
+def _delay_label(secs) -> str:
+    """Format delay seconds into a short human-readable string."""
+    if pd.isna(secs) or secs is None:
+        return "On time"
+    s = float(secs)
+    if s <= 30:
+        return "On time"
+    if s < 60:
+        return "<1 min"
+    m = s / 60
+    if m < 10:
+        return f"~{m:.0f} min"
+    return f"{m:.0f} min"
+
+
 def build_map_data(stations_df: pd.DataFrame, statuses_df: pd.DataFrame) -> pd.DataFrame:
     if statuses_df.empty:
         df = stations_df.copy()
@@ -203,10 +228,12 @@ def build_map_data(stations_df: pd.DataFrame, statuses_df: pd.DataFrame) -> pd.D
         df["alert_level"] = df["alert_level"].fillna("N/A")
         df["congestion_score"] = df["congestion_score"].fillna(0.0)
     df["color"] = df["alert_level"].map(lambda lvl: _ALERT_COLORS.get(lvl, _NO_DATA_COLOR))
-    # Exponential radius curve for more dramatic size contrast
-    df["radius"] = (
-        80 + np.power(df["congestion_score"].fillna(0.0).clip(0, 1), 0.5) * 500
-    ).clip(80, 500)
+    df["radius"] = (100 + df["congestion_score"].fillna(0.0) * 300).clip(100, 400)
+
+    # Human-readable labels for tooltip
+    df["crowding"] = df["congestion_score"].apply(_crowding_label)
+    df["delay"] = df["avg_arrival_delay_secs"].apply(_delay_label)
+
     # Pre-render MTA line badges for HTML tooltip
     df["lines_html"] = df["daytime_routes"].apply(_lines_html)
     return df
@@ -349,7 +376,7 @@ for col, (label, value, color) in zip([c1, c2, c3, c4, c5], tiles):
 st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Map — dark basemap, pitch, HTML tooltip with MTA line badges
+# Map — dark basemap, pitch, HTML tooltip with MTA badges
 # ---------------------------------------------------------------------------
 
 layer = pydeck.Layer(
@@ -358,8 +385,8 @@ layer = pydeck.Layer(
     get_position="[lon, lat]",
     get_fill_color="color",
     get_radius="radius",
-    radius_min_pixels=5,
-    radius_max_pixels=30,
+    radius_min_pixels=4,
+    radius_max_pixels=20,
     pickable=True,
 )
 
@@ -373,12 +400,12 @@ tooltip = {
             <span style="font-size:13px;font-weight:600;">{alert_level}</span>
         </div>
         <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
-            <span style="font-size:12px;color:#aaa;">Congestion Score</span>
-            <span style="font-size:13px;font-weight:600;">{congestion_score}</span>
+            <span style="font-size:12px;color:#aaa;">Crowding</span>
+            <span style="font-size:13px;font-weight:600;">{crowding}</span>
         </div>
         <div style="display:flex;justify-content:space-between;">
-            <span style="font-size:12px;color:#aaa;">Avg Delay</span>
-            <span style="font-size:13px;font-weight:600;">{avg_arrival_delay_secs}s</span>
+            <span style="font-size:12px;color:#aaa;">Delay</span>
+            <span style="font-size:13px;font-weight:600;">{delay}</span>
         </div>
     </div>
     """,
@@ -399,10 +426,11 @@ st.pydeck_chart(
         map_style="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
         tooltip=tooltip,
     ),
-    use_container_width=True,
+    width="stretch",
 )
 st.caption(
-    "🔴 SEVERE · 🟡 MODERATE · 🟢 NORMAL · ⚫ No data    —    Marker size scales with congestion score"
+    "🔴 SEVERE · 🟡 MODERATE · 🟢 NORMAL · ⚫ No data    —    "
+    "Marker size scales with congestion level"
 )
 
 # ---------------------------------------------------------------------------
@@ -420,16 +448,15 @@ else:
     display["_sort"] = display["alert_level"].map(lambda s: _ALERT_SORT.get(s, 99))
     display = display.sort_values("_sort").drop(columns="_sort").reset_index(drop=True)
     display["event_timestamp"] = display["event_timestamp"].apply(_relative_time)
-    display.columns = ["Station", "Status", "Score", "Avg Delay (s)", "Updated", "Weather"]
-    display["Status"] = display["Status"].map(lambda s: _BADGE.get(s, s))
+    display["crowding"] = display["congestion_score"].apply(_crowding_label)
+    display["delay"] = display["avg_arrival_delay_secs"].apply(_delay_label)
+    display["Status"] = display["alert_level"].map(lambda s: _BADGE.get(s, s))
+    display = display[["complex_name", "Status", "crowding", "delay",
+                       "event_timestamp", "weather_bucket"]]
+    display.columns = ["Station", "Status", "Crowding", "Delay", "Updated", "Weather"]
     st.dataframe(
         display,
-        column_config={
-            "Score": st.column_config.ProgressColumn(
-                "Score", min_value=0, max_value=1, format="%.2f"
-            ),
-        },
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -461,7 +488,7 @@ with tab_hist:
         hist_df = pd.DataFrame(hist_docs)
         hist_df["event_timestamp"] = pd.to_datetime(hist_df["event_timestamp"])
         hist_df = hist_df.set_index("event_timestamp").sort_index()
-        st.altair_chart(_history_altair(hist_df), use_container_width=True)
+        st.altair_chart(_history_altair(hist_df), width="stretch")
         st.caption("— — Dashed orange = MODERATE threshold (0.20)  ·  Dashed red = SEVERE threshold (0.50)")
     else:
         st.info("No history yet for this station. Data accumulates as the pipeline runs.")
