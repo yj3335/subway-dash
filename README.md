@@ -76,7 +76,13 @@ spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
     -m processing.gtfs_trips_consumer
 ```
 
-**6. Run the dashboard**
+**6. Start the serving layer**
+```bash
+uvicorn serving.main:app --reload
+```
+API available at `http://localhost:8000`. Check `http://localhost:8000/health` to confirm MongoDB and Cassandra are reachable.
+
+**7. Run the dashboard**
 ```bash
 streamlit run dashboard/app.py
 ```
@@ -84,13 +90,20 @@ Dashboard available at `http://localhost:8501`.
 
 ---
 
-## Smoke Test (Track A)
+## Smoke Tests
 
-Inject a synthetic 10-minute delay at Times Sq and watch the dashboard:
+**Track A — full pipeline smoke test** (requires Kafka + Spark running):
 ```bash
 python -m ingestion.inject_synthetic_delay --stop-id 127N --delay 600
 ```
 Target end-to-end latency: marker turns yellow/red within 60 seconds.
+
+**Track C — dashboard color test** (no Kafka/Spark needed, just MongoDB + FastAPI):
+```bash
+# Inject a SEVERE doc directly into MongoDB speed_layer
+python -m ingestion.inject_speed_layer --station-id 613 --level SEVERE
+```
+Times Sq marker turns red within 30 seconds (one Streamlit autorefresh cycle).
 
 ---
 
