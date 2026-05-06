@@ -26,13 +26,15 @@ _ALERT_COLORS = {
     "SEVERE":   [220, 0, 0, 220],
 }
 _NO_DATA_COLOR = [128, 128, 128, 120]
+_ALERT_SORT  = {"SEVERE": 0, "MODERATE": 1, "NORMAL": 2}
+_BADGE       = {"SEVERE": "🔴 SEVERE", "MODERATE": "🟡 MODERATE", "NORMAL": "🟢 NORMAL"}
 
 st.set_page_config(page_title="Subway Dash", layout="wide")
 st_autorefresh(interval=30_000, key="autorefresh")
 
 
 # ---------------------------------------------------------------------------
-# Cached data loaders
+# Cached loaders
 # ---------------------------------------------------------------------------
 
 @st.cache_data
@@ -73,23 +75,22 @@ def load_station_baseline(station_id: str, weather_bucket: str = "clear") -> pd.
 
 
 # ---------------------------------------------------------------------------
-# Live data (runs every 30 s refresh)
+# Live data
 # ---------------------------------------------------------------------------
 
 def load_station_statuses() -> pd.DataFrame:
-    """Latest congestion doc per station from the API, or empty DataFrame on failure."""
     try:
         resp = requests.get(f"{API_URL}/api/v1/stations/all", timeout=5)
         resp.raise_for_status()
-    except Exception as exc:
-        st.warning(f"API unavailable: {exc}")
+    except Exception:
+        st.warning("Live data unavailable — check that the API server is running.")
         return pd.DataFrame()
     docs = resp.json()
     return pd.DataFrame(docs) if docs else pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------
-# Data wrangling helpers
+# Helpers
 # ---------------------------------------------------------------------------
 
 def build_map_data(stations_df: pd.DataFrame, statuses_df: pd.DataFrame) -> pd.DataFrame:
@@ -107,7 +108,6 @@ def build_map_data(stations_df: pd.DataFrame, statuses_df: pd.DataFrame) -> pd.D
         df["alert_level"] = df["alert_level"].fillna("N/A")
         df["congestion_score"] = df["congestion_score"].fillna(0.0)
     df["color"] = df["alert_level"].map(lambda lvl: _ALERT_COLORS.get(lvl, _NO_DATA_COLOR))
-    # Scale radius: 100 m baseline + up to 300 m extra at score = 1.0
     df["radius"] = (100 + df["congestion_score"].fillna(0.0) * 300).clip(100, 400)
     return df
 
@@ -134,47 +134,48 @@ def _freshness_str(statuses_df: pd.DataFrame) -> str:
     return f"{delta // 60}m {delta % 60}s ago"
 
 
+def _relative_time(ts_str) -> str:
+    if pd.isna(ts_str):
+        return "—"
+    try:
+        ts = pd.to_datetime(ts_str, utc=True)
+        delta = int((datetime.now(timezone.utc) - ts).total_seconds())
+        if delta < 60:
+            return f"{delta}s ago"
+        if delta < 3600:
+            return f"{delta // 60}m ago"
+        return f"{delta // 3600}h ago"
+    except Exception:
+        return "—"
+
+
 # ---------------------------------------------------------------------------
 # Fetch live data
 # ---------------------------------------------------------------------------
 
 stations = load_stations()
 statuses = load_station_statuses()
-map_df = build_map_data(stations, statuses)
+map_df   = build_map_data(stations, statuses)
 
 # ---------------------------------------------------------------------------
-# Sidebar
+# Sidebar — line filter only
 # ---------------------------------------------------------------------------
 
-st.sidebar.title("Subway Dash")
-st.sidebar.markdown("**Legend**")
-st.sidebar.markdown(
-    "<span style='color:#dc0000'>⬤</span> SEVERE &nbsp;"
-    "<span style='color:#ffc800'>⬤</span> MODERATE &nbsp;"
-    "<span style='color:#00c800'>⬤</span> NORMAL &nbsp;"
-    "<span style='color:#808080'>⬤</span> No data",
-    unsafe_allow_html=True,
-)
-st.sidebar.divider()
+st.sidebar.markdown("### Filter by line")
 all_lines = get_all_lines(stations)
-selected_lines = st.sidebar.multiselect("Filter by subway line", all_lines)
+selected_lines = st.sidebar.multiselect("Subway line", all_lines, label_visibility="collapsed")
 filtered_map_df = filter_by_lines(map_df, selected_lines)
 
 # ---------------------------------------------------------------------------
-# Title + alert banner
+# Title + SEVERE-only alert banner
 # ---------------------------------------------------------------------------
 
 st.title("Subway Dash — Live Congestion")
 
 if not statuses.empty:
     severe_n = int((statuses["alert_level"] == "SEVERE").sum())
-    moderate_n = int((statuses["alert_level"] == "MODERATE").sum())
     if severe_n:
         st.error(f"🔴 **SEVERE** congestion at **{severe_n}** station(s) — see red markers on map.")
-    elif moderate_n:
-        st.warning(f"🟡 **Moderate** congestion at **{moderate_n}** station(s).")
-    else:
-        st.success("🟢 All monitored stations operating normally.")
 
 # ---------------------------------------------------------------------------
 # KPI tiles
@@ -182,8 +183,10 @@ if not statuses.empty:
 
 c1, c2, c3, c4, c5 = st.columns(5)
 if statuses.empty:
-    for col, label in zip([c1, c2, c3, c4, c5],
-                          ["Stations Monitored", "🔴 Severe", "🟡 Moderate", "🟢 Normal", "Last Updated"]):
+    for col, label in zip(
+        [c1, c2, c3, c4, c5],
+        ["Stations Monitored", "🔴 Severe", "🟡 Moderate", "🟢 Normal", "Last Updated"],
+    ):
         col.metric(label, "—")
 else:
     c1.metric("Stations Monitored", len(statuses))
@@ -193,7 +196,7 @@ else:
     c5.metric("Last Updated", _freshness_str(statuses))
 
 # ---------------------------------------------------------------------------
-# Map
+# Map + legend caption
 # ---------------------------------------------------------------------------
 
 layer = pydeck.Layer(
@@ -207,31 +210,35 @@ layer = pydeck.Layer(
     pickable=True,
 )
 
-view = pydeck.ViewState(latitude=40.73, longitude=-73.98, zoom=11)
-
 st.pydeck_chart(
     pydeck.Deck(
         layers=[layer],
-        initial_view_state=view,
-        tooltip={"text": "{name}\nStatus: {alert_level}\nScore: {congestion_score}\nDelay: {avg_arrival_delay_secs}s"},
+        initial_view_state=pydeck.ViewState(latitude=40.73, longitude=-73.98, zoom=11),
+        tooltip={"text": "{name}\n{alert_level}  ·  Score {congestion_score}  ·  Delay {avg_arrival_delay_secs}s"},
     ),
     use_container_width=True,
 )
+st.caption(
+    "🔴 SEVERE · 🟡 MODERATE · 🟢 NORMAL · ⚫ No data    —    Marker size scales with congestion score"
+)
 
 # ---------------------------------------------------------------------------
-# Station congestion table (human-readable columns + progress bar for score)
+# Station congestion table — sorted by severity, relative timestamps
 # ---------------------------------------------------------------------------
 
 st.subheader("Station Congestion Status")
 if statuses.empty:
-    st.info("No congestion data yet. Start the API server and run processing/lambda_merge.py.")
+    st.info("No live data yet. The feed populates automatically once the pipeline is running.")
 else:
     display = statuses[
-        ["complex_name", "alert_level", "congestion_score", "avg_arrival_delay_secs", "event_timestamp", "weather_bucket"]
+        ["complex_name", "alert_level", "congestion_score", "avg_arrival_delay_secs",
+         "event_timestamp", "weather_bucket"]
     ].copy()
+    display["_sort"] = display["alert_level"].map(lambda s: _ALERT_SORT.get(s, 99))
+    display = display.sort_values("_sort").drop(columns="_sort").reset_index(drop=True)
+    display["event_timestamp"] = display["event_timestamp"].apply(_relative_time)
     display.columns = ["Station", "Status", "Score", "Avg Delay (s)", "Updated", "Weather"]
-    _badge = {"SEVERE": "🔴 SEVERE", "MODERATE": "🟡 MODERATE", "NORMAL": "🟢 NORMAL"}
-    display["Status"] = display["Status"].map(lambda s: _badge.get(s, s))
+    display["Status"] = display["Status"].map(lambda s: _BADGE.get(s, s))
     st.dataframe(
         display,
         column_config={
@@ -242,52 +249,12 @@ else:
     )
 
 # ---------------------------------------------------------------------------
-# W8: Next-hour forecast widget
+# Drill-down tabs: 24h History | Next-Hour Forecast
 # ---------------------------------------------------------------------------
 
-with st.expander("Next-Hour Forecast"):
-    now_utc = datetime.now(timezone.utc)
-    next_hour = (now_utc.hour + 1) % 24
+tab_hist, tab_forecast = st.tabs(["📈 24h History", "🔮 Next-Hour Forecast"])
 
-    st.caption(
-        f"Historical baseline (clear weather) for the selected station. "
-        f"Current hour: **{now_utc.hour:02d}:00** → Next hour: **{next_hour:02d}:00**."
-    )
-
-    forecast_name = st.selectbox(
-        "Station", stations["name"].sort_values().tolist(), key="forecast_station"
-    )
-    forecast_id = stations.loc[stations["name"] == forecast_name, "station_complex_id"].values[0]
-
-    baseline_df = load_station_baseline(forecast_id)
-
-    if baseline_df.empty:
-        st.info("No baseline data for this station. Run processing/build_baseline.py --sink cassandra.")
-    else:
-        cur_row  = baseline_df[baseline_df["hour_of_day"] == now_utc.hour]["avg_entries"].values
-        next_row = baseline_df[baseline_df["hour_of_day"] == next_hour]["avg_entries"].values
-        cur_val  = int(cur_row[0])  if len(cur_row)  else None
-        next_val = int(next_row[0]) if len(next_row) else None
-
-        fc1, fc2, fc3 = st.columns([1, 1, 2])
-        fc1.metric(
-            f"Now ({now_utc.hour:02d}:00)",
-            f"{cur_val:,}" if cur_val is not None else "—",
-        )
-        fc2.metric(
-            f"Next ({next_hour:02d}:00)",
-            f"{next_val:,}" if next_val is not None else "—",
-            delta=f"{next_val - cur_val:+,}" if cur_val is not None and next_val is not None else None,
-        )
-        with fc3:
-            st.caption("24-hour baseline")
-            st.line_chart(baseline_df.set_index("hour_of_day")["avg_entries"], height=120)
-
-# ---------------------------------------------------------------------------
-# 24-hour time-series chart (drill-down per station)
-# ---------------------------------------------------------------------------
-
-with st.expander("Station 24-Hour History"):
+with tab_hist:
     station_names = stations["name"].sort_values().tolist()
     selected_name = st.selectbox("Station", station_names, key="history_station")
     selected_id = stations.loc[stations["name"] == selected_name, "station_complex_id"].values[0]
@@ -296,9 +263,9 @@ with st.expander("Station 24-Hour History"):
         hist_resp = requests.get(f"{API_URL}/api/v1/station/{selected_id}/history", timeout=5)
         hist_resp.raise_for_status()
         hist_docs = hist_resp.json()
-    except Exception as exc:
+    except Exception:
         hist_docs = []
-        st.warning(f"Could not load history: {exc}")
+        st.warning("Could not load history — check API server.")
 
     if hist_docs:
         hist_df = pd.DataFrame(hist_docs)
@@ -306,15 +273,37 @@ with st.expander("Station 24-Hour History"):
         hist_df = hist_df.set_index("event_timestamp").sort_index()
         st.line_chart(hist_df["congestion_score"])
     else:
-        st.info("No history yet for this station in the past 24 hours.")
+        st.info("No history yet for this station. Data accumulates as the pipeline runs.")
 
-# ---------------------------------------------------------------------------
-# Cassandra round-trip: Times Sq hourly capacity baseline
-# ---------------------------------------------------------------------------
+with tab_forecast:
+    now_utc   = datetime.now(timezone.utc)
+    next_hour = (now_utc.hour + 1) % 24
+    st.caption(
+        f"Expected ridership based on historical baseline (clear weather). "
+        f"Current: **{now_utc.hour:02d}:00** → Next: **{next_hour:02d}:00**"
+    )
 
-st.subheader("Times Sq-42 St (ID 611) — Hourly Capacity Baseline (clear weather)")
-hourly = load_station_baseline("611")
-if hourly.empty:
-    st.info("No baseline data yet. Run processing/build_baseline.py --sink cassandra to populate.")
-else:
-    st.line_chart(hourly.set_index("hour_of_day")["avg_entries"])
+    forecast_name = st.selectbox(
+        "Station", stations["name"].sort_values().tolist(), key="forecast_station"
+    )
+    forecast_id  = stations.loc[stations["name"] == forecast_name, "station_complex_id"].values[0]
+    baseline_df  = load_station_baseline(forecast_id)
+
+    if baseline_df.empty:
+        st.info("Baseline data not yet available. It populates after the first nightly batch run.")
+    else:
+        cur_row  = baseline_df[baseline_df["hour_of_day"] == now_utc.hour]["avg_entries"].values
+        next_row = baseline_df[baseline_df["hour_of_day"] == next_hour]["avg_entries"].values
+        cur_val  = int(cur_row[0])  if len(cur_row)  else None
+        next_val = int(next_row[0]) if len(next_row) else None
+
+        fc1, fc2, fc3 = st.columns([1, 1, 2])
+        fc1.metric(f"Now ({now_utc.hour:02d}:00)", f"{cur_val:,}" if cur_val is not None else "—")
+        fc2.metric(
+            f"Next ({next_hour:02d}:00)",
+            f"{next_val:,}" if next_val is not None else "—",
+            delta=f"{next_val - cur_val:+,}" if cur_val is not None and next_val is not None else None,
+        )
+        with fc3:
+            st.caption("Full day baseline")
+            st.line_chart(baseline_df.set_index("hour_of_day")["avg_entries"], height=120)
