@@ -3,8 +3,6 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
-from serving.db_clients import get_cassandra_session
-
 
 _TTL_SECS = 15 * 60
 _STALE_SECS = 60 * 60
@@ -23,6 +21,8 @@ def get_current_weather_bucket(*, force_refresh: bool = False) -> str:
 
     bucket = "clear"
     try:
+        from serving.db_clients import get_cassandra_session
+
         session = get_cassandra_session()
         row = session.execute(
             "SELECT weather_bucket, updated_at FROM subway_dash.current_weather WHERE scope = 'nyc'"
@@ -43,4 +43,3 @@ def _is_fresh(updated_at: datetime | None, now_epoch: float) -> bool:
     if updated_at.tzinfo is None:
         updated_at = updated_at.replace(tzinfo=timezone.utc)
     return now_epoch - updated_at.timestamp() < _STALE_SECS
-
