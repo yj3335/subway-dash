@@ -230,6 +230,8 @@ else:
         ["complex_name", "alert_level", "congestion_score", "avg_arrival_delay_secs", "event_timestamp", "weather_bucket"]
     ].copy()
     display.columns = ["Station", "Status", "Score", "Avg Delay (s)", "Updated", "Weather"]
+    _badge = {"SEVERE": "🔴 SEVERE", "MODERATE": "🟡 MODERATE", "NORMAL": "🟢 NORMAL"}
+    display["Status"] = display["Status"].map(lambda s: _badge.get(s, s))
     st.dataframe(
         display,
         column_config={
