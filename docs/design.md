@@ -1,7 +1,7 @@
 # Track C — Storage, Serving & Dashboard: Design Document
 
 **Owner:** Yash Jain  
-**Last updated:** Week 7
+**Last updated:** Week 9
 
 ---
 
@@ -173,10 +173,19 @@ streamlit run dashboard/app.py
 
 ---
 
-## Remaining (Weeks 8–10)
+## Completed
 
 | Week | Task |
 |---|---|
-| W8 | Next-hour forecast widget (queries `station_capacity_baseline` at `current_hour + 1`). Alert banner (SEVERE / MODERATE / all-clear). Data freshness timestamp from `inserted_at`. |
-| W9 | 2-hour user acceptance test. Fix all P0 bugs. Test empty-state handling (producer down → dashboard recovers within 35s of restart). |
-| W10 | MTA line branding in tooltips. Loading spinners. Empty-state polish. 3-minute demo video (cold start → normal → synthetic SEVERE → recovery). Final submission package. |
+| W8 | ✅ Next-hour forecast widget. ✅ Alert banner (SEVERE only). ✅ Data freshness timestamp. ✅ KPI tiles. ✅ UX audit: sorted table, relative timestamps, `st.tabs`, legend caption, clean error messages. |
+| W9 | ✅ MTA line branding in tooltips (`lines` column, "A · C · E" format). ✅ Loading spinners (history + forecast tabs). ✅ Pipeline-offline state with "last seen X ago" via `st.session_state`. |
+
+## Remaining
+
+| Task | Blocked on |
+|---|---|
+| 2-hour UAT with full team | Team availability |
+| Cassandra baseline populate | Preyansh: `build_baseline.py --sink cassandra` |
+| Empty-state recovery test (35s) | Full pipeline running |
+| Demo video (cold start → SEVERE → recovery) | Baseline data for forecast demo |
+| Final submission package | All of the above |

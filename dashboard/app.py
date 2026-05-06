@@ -26,8 +26,8 @@ _ALERT_COLORS = {
     "SEVERE":   [220, 0, 0, 220],
 }
 _NO_DATA_COLOR = [128, 128, 128, 120]
-_ALERT_SORT  = {"SEVERE": 0, "MODERATE": 1, "NORMAL": 2}
-_BADGE       = {"SEVERE": "🔴 SEVERE", "MODERATE": "🟡 MODERATE", "NORMAL": "🟢 NORMAL"}
+_ALERT_SORT = {"SEVERE": 0, "MODERATE": 1, "NORMAL": 2}
+_BADGE      = {"SEVERE": "🔴 SEVERE", "MODERATE": "🟡 MODERATE", "NORMAL": "🟢 NORMAL"}
 
 st.set_page_config(page_title="Subway Dash", layout="wide")
 st_autorefresh(interval=30_000, key="autorefresh")
@@ -75,18 +75,20 @@ def load_station_baseline(station_id: str, weather_bucket: str = "clear") -> pd.
 
 
 # ---------------------------------------------------------------------------
-# Live data
+# Live data — tracks last successful fetch in session state
 # ---------------------------------------------------------------------------
 
 def load_station_statuses() -> pd.DataFrame:
     try:
         resp = requests.get(f"{API_URL}/api/v1/stations/all", timeout=5)
         resp.raise_for_status()
+        docs = resp.json()
+        df = pd.DataFrame(docs) if docs else pd.DataFrame()
+        if not df.empty:
+            st.session_state["last_fetch_ok"] = datetime.now(timezone.utc)
+        return df
     except Exception:
-        st.warning("Live data unavailable — check that the API server is running.")
         return pd.DataFrame()
-    docs = resp.json()
-    return pd.DataFrame(docs) if docs else pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +111,10 @@ def build_map_data(stations_df: pd.DataFrame, statuses_df: pd.DataFrame) -> pd.D
         df["congestion_score"] = df["congestion_score"].fillna(0.0)
     df["color"] = df["alert_level"].map(lambda lvl: _ALERT_COLORS.get(lvl, _NO_DATA_COLOR))
     df["radius"] = (100 + df["congestion_score"].fillna(0.0) * 300).clip(100, 400)
+    # Format daytime_routes for tooltip: "A C E" → "A · C · E"
+    df["lines"] = df["daytime_routes"].apply(
+        lambda r: " · ".join(str(r).split()) if pd.notna(r) else "—"
+    )
     return df
 
 
@@ -167,12 +173,20 @@ selected_lines = st.sidebar.multiselect("Subway line", all_lines, label_visibili
 filtered_map_df = filter_by_lines(map_df, selected_lines)
 
 # ---------------------------------------------------------------------------
-# Title + SEVERE-only alert banner
+# Title + pipeline-offline banner OR severe alert
 # ---------------------------------------------------------------------------
 
 st.title("Subway Dash — Live Congestion")
 
-if not statuses.empty:
+if statuses.empty:
+    last_ok = st.session_state.get("last_fetch_ok")
+    if last_ok:
+        delta = int((datetime.now(timezone.utc) - last_ok).total_seconds())
+        ago = f"{delta}s ago" if delta < 60 else f"{delta // 60}m ago"
+        st.warning(f"⚠️ Pipeline offline — last data received **{ago}**. Map shows last known state.")
+    else:
+        st.warning("⚠️ Pipeline offline — waiting for data. Map will update automatically.")
+else:
     severe_n = int((statuses["alert_level"] == "SEVERE").sum())
     if severe_n:
         st.error(f"🔴 **SEVERE** congestion at **{severe_n}** station(s) — see red markers on map.")
@@ -196,7 +210,7 @@ else:
     c5.metric("Last Updated", _freshness_str(statuses))
 
 # ---------------------------------------------------------------------------
-# Map + legend caption
+# Map + legend caption  (tooltip includes MTA line branding)
 # ---------------------------------------------------------------------------
 
 layer = pydeck.Layer(
@@ -214,7 +228,7 @@ st.pydeck_chart(
     pydeck.Deck(
         layers=[layer],
         initial_view_state=pydeck.ViewState(latitude=40.73, longitude=-73.98, zoom=11),
-        tooltip={"text": "{name}\n{alert_level}  ·  Score {congestion_score}  ·  Delay {avg_arrival_delay_secs}s"},
+        tooltip={"text": "{name}\nLines: {lines}\n{alert_level}  ·  Score {congestion_score}  ·  Delay {avg_arrival_delay_secs}s"},
     ),
     use_container_width=True,
 )
@@ -259,13 +273,14 @@ with tab_hist:
     selected_name = st.selectbox("Station", station_names, key="history_station")
     selected_id = stations.loc[stations["name"] == selected_name, "station_complex_id"].values[0]
 
-    try:
-        hist_resp = requests.get(f"{API_URL}/api/v1/station/{selected_id}/history", timeout=5)
-        hist_resp.raise_for_status()
-        hist_docs = hist_resp.json()
-    except Exception:
-        hist_docs = []
-        st.warning("Could not load history — check API server.")
+    with st.spinner("Loading history…"):
+        try:
+            hist_resp = requests.get(f"{API_URL}/api/v1/station/{selected_id}/history", timeout=5)
+            hist_resp.raise_for_status()
+            hist_docs = hist_resp.json()
+        except Exception:
+            hist_docs = []
+            st.warning("Could not load history — check API server.")
 
     if hist_docs:
         hist_df = pd.DataFrame(hist_docs)
@@ -286,8 +301,10 @@ with tab_forecast:
     forecast_name = st.selectbox(
         "Station", stations["name"].sort_values().tolist(), key="forecast_station"
     )
-    forecast_id  = stations.loc[stations["name"] == forecast_name, "station_complex_id"].values[0]
-    baseline_df  = load_station_baseline(forecast_id)
+    forecast_id = stations.loc[stations["name"] == forecast_name, "station_complex_id"].values[0]
+
+    with st.spinner("Loading baseline…"):
+        baseline_df = load_station_baseline(forecast_id)
 
     if baseline_df.empty:
         st.info("Baseline data not yet available. It populates after the first nightly batch run.")
