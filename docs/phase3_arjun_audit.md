@@ -276,11 +276,79 @@ write.
 | Assumption | Owner | Resolution |
 |---|---|---|
 | **A-12** (Spark skew warrants salting) | Arjun | **REVISED** — partition skew 2.6× (well within 3× target), but station-level skew 43× → salted join recommended for `lambda_merge.py` after first trying `spark.sql.adaptive.skewJoin.enabled=true`. |
-| **A-16** (`arrival.delay` populated > 90%) | Arjun | **CONFIRMED** — 0% null over 72,909 rows. |
-| **A-07** (60s/300s `service_deficit` endpoints) | Preyansh | **REVISION CANDIDATE** — `saturation=240s` better matches steady-state p99 of 139s; needs validation against an active-disruption run. |
+| **A-16** (`arrival.delay` populated > 90%) | Arjun | **REVISED — see Addendum below.** Initial CONFIRMED status was wrong. The 0% null rate held only because we silently filtered most routes out via a schema bug. After fix: 95% of rows come from a *computed* delay path; only the L line provides native `arrival.delay`. |
+| **A-07** (60s/300s `service_deficit` endpoints) | Preyansh | **REVISION CANDIDATE** — earlier suggestion of `saturation=240s` was based on L-only p99 of 139s. Across all 27 routes (post-fix), p95 is 284s and p99 is 732s. Recommend keeping `saturation=300s`; may even need to raise to 360s. Validate before locking. |
 | **A-11** (`maxOffsetsPerTrigger=5000`) | Arjun | **CONFIRMED ADEQUATE** — Kafka throughput ~80 msg/s on each topic, well below 5000-per-trigger limit. No backpressure observed. |
 | **A-10** (30s micro-batch achievable) | Arjun | **CONFIRMED** — 69 commits in 34 minutes ≈ 29.5s avg trigger, no missed slots. |
 | **A-13** (~470 station complexes) | Preyansh | Bridge has 496 entries; we observed 445 distinct stations in the live stream (89.7% coverage in 34 minutes). Long-tail stations would appear with longer runtime. |
+
+---
+
+## Addendum (2026-05-06) — corrections & multi-line delay fix
+
+The original audit claimed Assumption A-16 was CONFIRMED with "0% null `arrival_delay_secs`". On a deeper look — prompted by Preyansh noticing that downstream output looked L-line-heavy — that conclusion was wrong in two compounding ways:
+
+### Bug 1: silent schema-mismatch null on `arrival.time`
+
+The producer flattens GTFS-Realtime Protobuf via `MessageToDict(preserving_proto_field_name=True)`. Protobuf canonical-JSON encoding renders **int64/uint64 fields as JSON strings** (e.g. `"timestamp": "1778008924"`), because JSON numbers can't safely carry 64-bit precision. Both consumers' Spark schemas declared these as `LongType`, and Spark's `from_json` in PERMISSIVE mode silently returns null on type mismatch. So `arrival_time_epoch` and the top-level `event_unix_ts` were 100% null in the staging output, despite being populated 96–100% in the source data.
+
+Fix: switch the schema to `StringType` for `arrival.time`, `departure.time`, `feed_timestamp`, and `timestamp`; cast to `LongType` after parsing. Applied to both `gtfs_trips_consumer.py` and `gtfs_vehicle_consumer.py`.
+
+### Bug 2: only the L line publishes `arrival.delay` natively
+
+Sampling 20,000 messages from `gtfs-trips`:
+
+| Field | L line | Every other route |
+|---|---|---|
+| `arrival.time` | 97.4% populated | 96–100% populated |
+| `arrival.delay` | 97.4% populated | **0.0% populated** |
+
+The L is the only fully-automated (CBTC) line on NYCT, which is why the realtime feed pre-computes the delay seconds for it. For every other route the feed publishes only the predicted `arrival.time`. Section 3.3 of the plan said "extract `arrival.delay` directly (do not compute deltas manually)" — that worked for L-only and broke silently elsewhere.
+
+### Fix: static-schedule join
+
+Built `data/schedule/schedule_lookup.parquet` and `schedule_lookup_prefix.parquet` from the GTFS static feed (`google_transit.zip` → `stop_times.txt`, 562,755 entries). The trips consumer now:
+
+1. Joins on full `(trip_id_suffix, stop_id)` against the static schedule (most routes match).
+2. Falls back to a prefix-only join `(prefix, stop_id)` for routes that strip the run-id from realtime trip_ids (L, 7, SI, FX, 7X). Prefix lookup uses median scheduled time across matching runs — coarse but accurate enough for delay signal.
+3. Computes `arrival_delay_secs = arrival.time - (service_date_NY_midnight_utc + sched_arr_secs)`.
+4. Coalesces: prefer native `arrival.delay` when present (L), else use computed delay.
+
+A new column `delay_source` in the output indicates which path produced the value: `native` or `computed`.
+
+### Post-fix verification
+
+Re-ran the trips consumer with `--starting-offsets earliest --max-offsets-per-trigger 50000` over the existing Kafka backlog (~24 hours of retained traffic):
+
+| Metric | Value |
+|---|---|
+| Total `trip_delays` rows | **3,319,919** (was 72,909 at original audit) |
+| `delay_source = computed` | **3,183,374** (96%) |
+| `delay_source = native` | 136,545 (4%, L only) |
+| Distinct routes with computed delays | 26 (every NYCT route + Staten Island Railway) |
+
+Distribution of `arrival_delay_secs`:
+
+| Source | n | min | p50 | p95 | p99 | max |
+|---|---|---|---|---|---|---|
+| computed | 3,183,374 | -3,075 | 0 | **284** | **732** | 4,391 |
+| native (L) | 136,545 | -141 | 0 | 129 | 329 | 1,402 |
+
+The computed distribution has a wider tail (3,075s early / 4,391s late at the extremes). Two contributors: stale TripUpdates pointing at past trips, and approximate scheduled-time lookups via prefix-match on the small set of routes that strip run-ids. Both are tolerable for a windowed-average `service_deficit` signal, but Preyansh should add a `WHERE abs(arrival_delay_secs) < 1800` filter in `speed_layer_join.py` so single-row outliers don't dominate a 10-minute station window.
+
+### Calibration impact (A-07)
+
+Earlier I suggested lowering `service_deficit` saturation from 300s → 240s based on L-only p99 of 139s. With the system-wide distribution (p95=284s, p99=732s), that's wrong. Keep saturation at 300s; potentially raise to 360s. The grace endpoint (60s) still looks correct since p50=0s.
+
+### Files added / changed in this fix
+
+- New: `scripts/build_schedule_lookup.py` — extracts static GTFS, builds two parquet lookups
+- New: `data/schedule/schedule_lookup.parquet` (562k rows) and `schedule_lookup_prefix.parquet` (469k rows)
+- Modified: `processing/gtfs_trips_consumer.py` — protobuf-int64 schema fix + schedule join + coalesce
+- Modified: `processing/gtfs_vehicle_consumer.py` — protobuf-int64 schema fix
+- Modified: `docs/staging_schemas.md` — documents new `delay_source` column and `scheduled_arrival_unix` (TODO if not yet)
+
+The original "34-minute audit" framing in the body of this doc reflects the broken-schema run. Track B should regenerate any downstream outputs (speed-layer windowed averages, MongoDB lambda merge) against the post-fix staging.
 
 ---
 

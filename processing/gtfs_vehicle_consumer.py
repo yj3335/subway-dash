@@ -18,6 +18,7 @@ import logging
 
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
+    IntegerType,
     LongType,
     StringType,
     StructField,
@@ -40,9 +41,14 @@ log = logging.getLogger("gtfs_vehicle_consumer")
 # Schema of the JSON value emitted by gtfs_producer for VehiclePosition entities.
 # Producer flattens via MessageToDict(preserving_proto_field_name=True), so
 # fields like trip.trip_id and stop_id are nested under their proto names.
+#
+# IMPORTANT: protobuf canonical JSON encodes int64/uint64 as STRINGS. The
+# `feed_timestamp` and `timestamp` fields are uint64 → declared StringType
+# and cast to long after parsing. `current_stop_sequence` is uint32 →
+# JSON number, IntegerType is fine.
 VEHICLE_SCHEMA = StructType([
     StructField("feed", StringType()),
-    StructField("feed_timestamp", LongType()),
+    StructField("feed_timestamp", StringType()),  # uint64 → JSON string
     StructField("entity_id", StringType()),
     StructField("route_id", StringType()),
     StructField("trip", StructType([
@@ -54,8 +60,8 @@ VEHICLE_SCHEMA = StructType([
     StructField("vehicle", StructType([StructField("id", StringType())])),
     StructField("stop_id", StringType()),
     StructField("current_status", StringType()),
-    StructField("current_stop_sequence", LongType()),
-    StructField("timestamp", LongType()),
+    StructField("current_stop_sequence", IntegerType()),
+    StructField("timestamp", StringType()),  # uint64 → JSON string
 ])
 
 
@@ -104,7 +110,8 @@ def build_pipeline(args: argparse.Namespace) -> None:
             F.col("v.stop_id").alias("stop_id_raw"),
             F.col("v.current_status").alias("current_status"),
             F.col("v.current_stop_sequence").alias("current_stop_sequence"),
-            F.col("v.timestamp").alias("event_unix_ts"),
+            # Cast string→long for the int64 protobuf timestamp
+            F.col("v.timestamp").cast(LongType()).alias("event_unix_ts"),
             F.col("kafka_ts"),
         )
         .withColumn(
