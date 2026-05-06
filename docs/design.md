@@ -1,7 +1,7 @@
 # Track C — Storage, Serving & Dashboard: Design Document
 
 **Owner:** Yash Jain  
-**Last updated:** Week 7
+**Last updated:** Week 10
 
 ---
 
@@ -63,14 +63,15 @@ Connection strings are read from environment variables (`MONGO_URI`, `CASSANDRA_
 
 ### `serving/main.py` — FastAPI app
 
-Five routes:
+Six routes:
 
 | Route | Method | Description |
 |---|---|---|
 | `/health` | GET | Pings MongoDB and Cassandra; returns `{"status":"ok"}` or `{"status":"degraded"}` with per-DB details |
 | `/api/v1/station/{id}/congestion` | GET | Latest `speed_layer` document for one station; 404 if no data |
 | `/api/v1/station/{id}/history` | GET | Last 24h of `speed_layer` docs for one station, sorted by `event_timestamp` asc. `?hours=N` overrides the window |
-| `/api/v1/stations/all` | GET | Latest document per station (MongoDB aggregation pipeline: sort → group by station → first) |
+| `/api/v1/station/{id}/forecast` | GET | Next-hour capacity forecast from Cassandra baseline; returns `avg_entries`, `p95_entries` for `(station, clear, dow, next_hour)` |
+| `/api/v1/stations/all` | GET | Latest document per station (MongoDB aggregation pipeline: sort → group by station → first). **12-second TTL in-memory cache** reduces MongoDB load on every autorefresh cycle |
 | `/api/v1/alerts` | GET | Same as `/stations/all` but filtered to `alert_level ∈ {MODERATE, SEVERE}` |
 
 All routes exclude `_id` from responses; `datetime` fields are serialized to ISO-8601 strings.
@@ -81,21 +82,27 @@ Start with: `uvicorn serving.main:app --reload`
 
 ## Dashboard (`dashboard/app.py`)
 
-### Current state (Week 7 complete)
+### Current state (Week 10 complete)
 
-- **Station map:** 445 stations loaded from `data/bridge/station_bridge.parquet` (deduplicated on `station_complex_id`). Marker color is driven by `alert_level` from the live FastAPI response: green = NORMAL, yellow = MODERATE, red = SEVERE, grey = no data yet.
-- **Hover tooltip:** station name, `alert_level`, `congestion_score`, `avg_arrival_delay_secs`.
-- **30-second autorefresh:** via `streamlit-autorefresh`. The bridge parquet is cached with `@st.cache_data` (loaded once); the API call runs every refresh cycle.
-- **Sidebar line filter:** `st.multiselect` driven by `daytime_routes` from the bridge table. Filters map markers to stations serving the selected lines.
-- **Congestion table:** `st.dataframe` showing latest status per station from `/api/v1/stations/all`.
-- **24h time-series expander:** station selector + line chart of `congestion_score` over the past 24 hours, calling `/api/v1/station/{id}/history`.
-- **Cassandra round-trip section:** Times Sq-42 St hourly capacity baseline (clear weather) as a line chart. Queries Cassandra directly — no API route exists for this.
+- **MTA dark theme:** `.streamlit/config.toml` sets `primaryColor=#0039A6`, `backgroundColor=#0E1117`, matching MTA brand guidelines.
+- **MTA branded header:** Full-width dark-blue header bar with the SUBWAY DASH wordmark.
+- **Station map:** 445 stations on a CARTO dark-matter basemap with `pitch=30` for a 3D tilt. Marker radius uses an exponential curve `80 + √(score) × 500` — low-congestion stations are small dots; severe stations are visually dominant. Color encodes alert level: blue = NORMAL, orange = MODERATE, red = SEVERE, grey = no data.
+- **HTML tooltip:** Rich popup with MTA line badges (colored per official line palette), alert level, congestion score, and delay.
+- **KPI tiles:** Alert count, SEVERE count, worst-station banner — styled with colored left-border accents.
+- **Threshold reference lines:** Altair history chart shows MODERATE (0.20) and SEVERE (0.50) reference lines so the trend is readable against the scale.
+- **Toast escalation:** `st.toast()` fires when any station transitions into SEVERE, tracked via `st.session_state["prev_alerts"]`.
+- **System health strip:** Inline status indicators for MongoDB, Cassandra, and API — surfaced in the sidebar so operators can diagnose connectivity without leaving the page.
+- **Freshness indicator:** Sidebar shows last-fetch age; turns orange with a warning if data is >90 seconds stale.
+- **30-second autorefresh:** via `streamlit-autorefresh`. Bridge parquet cached with `@st.cache_data`; API calls run every cycle.
+- **Sidebar line filter:** `st.multiselect` over `daytime_routes`; filters map markers and table rows.
+- **24h history tab:** Altair chart of `congestion_score` over the past 24 hours with threshold lines.
+- **Next-hour forecast tab:** Calls `/api/v1/station/{id}/forecast` backed by Cassandra baseline.
 
-### Why all DB reads go through FastAPI (except the baseline chart)
+### Why all DB reads go through FastAPI
 
-The design principle from Week 5 is that the dashboard should not query databases directly. All speed-layer reads go through the FastAPI serving layer. The Times Sq baseline chart (C4.2) is an exception: it's a diagnostic section testing the Cassandra connection, and there's no API route for arbitrary station-hour baseline lookups.
+The design principle from Week 5 is that the dashboard should not query databases directly. All speed-layer and baseline reads go through the FastAPI serving layer. The forecast tab uses the new `/forecast` endpoint added in Week 10 — no Cassandra calls from the dashboard.
 
-**Why PyDeck?** It renders WebGL maps inside Streamlit with a single function call and supports the `ScatterplotLayer` → `get_fill_color` pattern needed for green/yellow/red markers. Folium was the alternative but requires HTML embedding and doesn't compose as cleanly with Streamlit's reactive model.
+**Why PyDeck?** It renders WebGL maps inside Streamlit with a single function call and supports the `ScatterplotLayer` → `get_fill_color` pattern needed for colored markers. The CARTO dark-matter style is loaded via a direct style URL, keeping the map visually consistent with the MTA dark theme.
 
 ---
 
@@ -173,10 +180,20 @@ streamlit run dashboard/app.py
 
 ---
 
-## Remaining (Weeks 8–10)
+## Completed
 
 | Week | Task |
 |---|---|
-| W8 | Next-hour forecast widget (queries `station_capacity_baseline` at `current_hour + 1`). Alert banner (SEVERE / MODERATE / all-clear). Data freshness timestamp from `inserted_at`. |
-| W9 | 2-hour user acceptance test. Fix all P0 bugs. Test empty-state handling (producer down → dashboard recovers within 35s of restart). |
-| W10 | MTA line branding in tooltips. Loading spinners. Empty-state polish. 3-minute demo video (cold start → normal → synthetic SEVERE → recovery). Final submission package. |
+| W8 | ✅ Next-hour forecast widget. ✅ Alert banner (SEVERE only). ✅ Data freshness timestamp. ✅ KPI tiles. ✅ UX audit: sorted table, relative timestamps, `st.tabs`, legend caption, clean error messages. |
+| W9 | ✅ MTA line branding in tooltips (colored HTML badges per official palette). ✅ Pipeline-offline state with "last seen X ago" via `st.session_state`. ✅ System health strip (MongoDB / Cassandra / API). ✅ `st.toast()` escalation notifications. |
+| W10 | ✅ CARTO dark-matter basemap with `pitch=30`. ✅ Exponential radius curve. ✅ Styled KPI cards with colored accents. ✅ Altair threshold reference lines (MODERATE + SEVERE). ✅ MTA dark theme via `.streamlit/config.toml`. ✅ MTA branded header. ✅ `/api/v1/station/{id}/forecast` endpoint. ✅ 12s TTL cache on `/api/v1/stations/all`. ✅ MongoDB compound index for aggregation performance. |
+
+## Remaining
+
+| Task | Blocked on |
+|---|---|
+| 2-hour UAT with full team | Team availability |
+| Cassandra baseline populate | Preyansh: `build_baseline.py --sink cassandra` (parquet delivered, load script ready at `infra/load_baseline_parquet.py`) |
+| Empty-state recovery test (35s) | Full pipeline running |
+| Demo video (cold start → SEVERE → recovery) | Baseline data for forecast demo |
+| Final submission package | All of the above |

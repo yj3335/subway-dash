@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -10,6 +11,9 @@ from fastapi.responses import JSONResponse
 from serving.db_clients import get_cassandra_session, get_mongo_collection
 
 app = FastAPI(title="Subway Dash API")
+
+_stations_cache: tuple[float, list] | None = None
+_STATIONS_CACHE_TTL = 12.0  # seconds
 
 # Aggregation pipeline: latest document per station_complex_id
 _LATEST_PER_STATION = [
@@ -61,8 +65,13 @@ def station_congestion(station_id: str):
 
 @app.get("/api/v1/stations/all")
 def stations_all():
+    global _stations_cache
+    now = time.monotonic()
+    if _stations_cache and (now - _stations_cache[0]) < _STATIONS_CACHE_TTL:
+        return _stations_cache[1]
     col = get_mongo_collection("speed_layer")
     docs = [_serialize(d) for d in col.aggregate(_LATEST_PER_STATION)]
+    _stations_cache = (now, docs)
     return docs
 
 
@@ -78,6 +87,33 @@ def station_history(station_id: str, hours: int = 24):
         ).sort("event_timestamp", 1)
     )
     return [_serialize(d) for d in docs]
+
+
+@app.get("/api/v1/station/{station_id}/forecast")
+def station_forecast(station_id: str):
+    now = datetime.now(timezone.utc)
+    next_hour = (now.hour + 1) % 24
+    # isoweekday(): Mon=1…Sun=7; Cassandra schema uses same convention
+    dow = now.isoweekday()
+    try:
+        session = get_cassandra_session()
+        row = session.execute(
+            "SELECT avg_entries, p95_entries FROM subway_dash.station_capacity_baseline "
+            "WHERE station_complex_id = %s AND weather_bucket = 'clear' "
+            "AND day_of_week = %s AND hour_of_day = %s",
+            (station_id, dow, next_hour),
+        ).one()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Cassandra unavailable: {exc}")
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"No baseline for station {station_id!r}")
+    return {
+        "station_complex_id": station_id,
+        "next_hour": next_hour,
+        "day_of_week": dow,
+        "avg_entries": row.avg_entries,
+        "p95_entries": row.p95_entries,
+    }
 
 
 @app.get("/api/v1/alerts")
