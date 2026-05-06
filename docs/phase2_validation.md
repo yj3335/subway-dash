@@ -19,11 +19,24 @@ Status: PASS for a finite local smoke test using the staged parquet inputs from 
 | Check | Result |
 |---|---|
 | Debug parquet rows in `data/debug/lambda_merge/` | `377` |
+| MongoDB `subway_dash.speed_layer` documents | `378` |
 | `congestion_score` in `[0, 1]` | PASS |
 | `predicted_delay_mins` plausible | PASS; highest sample `2.72` minutes |
 | Highest-scoring station sanity check | station `134` / Sutter Av, `congestion_score = 0.084` |
 
-Status: PASS for local parquet sink validation. The local run defaulted `weather_bucket` to `clear` because serving dependencies were not installed in the active venv; this is expected fail-closed behavior for local testing. MongoDB sink validation still requires the serving dependencies and MongoDB runtime.
+Status: PASS for local parquet sink validation and MongoDB sink validation. The MongoDB count includes the Lambda output plus a synthetic dashboard color-test document.
+
+## Serving + Dashboard Checks
+
+| Check | Result |
+|---|---|
+| FastAPI `/health` | PASS: `{"status":"ok","mongo":"ok","cassandra":"ok"}` |
+| FastAPI `/api/v1/stations/all` | PASS: returned `19` latest station documents |
+| FastAPI `/api/v1/alerts` | PASS: returned `1` alert |
+| Dashboard render | PASS: Streamlit dashboard loaded and displayed the MongoDB-backed station state |
+| Synthetic alert sanity check | station `611` / Times Sq-42 St, `alert_level = SEVERE`, `congestion_score = 0.8` |
+
+Status: PASS. Yash's Track C serving/dashboard path is compatible with Track B Lambda output in `subway_dash.speed_layer`.
 
 ## Threshold Back-Test
 
