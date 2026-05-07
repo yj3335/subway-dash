@@ -137,6 +137,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mongo-uri", default=MONGO_URI)
     parser.add_argument("--debug-output", default=str(LAMBDA_DEBUG_OUTPUT_DIR))
     parser.add_argument("--trigger", default="30 seconds")
+    parser.add_argument(
+        "--max-files-per-trigger",
+        type=int,
+        default=None,
+        help="Optional file-source backpressure limit for speed-layer input.",
+    )
+    parser.add_argument(
+        "--latest-first",
+        action="store_true",
+        help="Process newest speed-layer files first when catching up from an existing backlog.",
+    )
     return parser.parse_args()
 
 
@@ -160,7 +171,12 @@ def main() -> None:
         print(f"processed lambda batch_id={batch_id} weather_bucket={bucket} rows={batch_df.count()}")
 
     Path(args.debug_output).mkdir(parents=True, exist_ok=True)
-    live_stream = spark.readStream.schema(delay_signal_schema()).parquet(args.input)
+    stream_reader = spark.readStream.schema(delay_signal_schema())
+    if args.max_files_per_trigger is not None:
+        stream_reader = stream_reader.option("maxFilesPerTrigger", args.max_files_per_trigger)
+    if args.latest_first:
+        stream_reader = stream_reader.option("latestFirst", "true")
+    live_stream = stream_reader.parquet(args.input)
     query = (
         live_stream.writeStream.foreachBatch(process_micro_batch)
         .trigger(processingTime=args.trigger)
@@ -172,4 +188,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -26,6 +26,8 @@ cd "$ROOT"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG_DIR="${LOG_DIR:-$ROOT/logs/e2e_$RUN_ID}"
 PID_FILE="$LOG_DIR/pids.txt"
+TAIL_PID=""
+MONITOR_PID=""
 
 # ---------------------------------------------------------------------------
 # Python — prefer .venv; Windows uses Scripts/, Unix uses bin/
@@ -59,10 +61,16 @@ START_DASHBOARD="${START_DASHBOARD:-1}"
 START_API="${START_API:-1}"
 START_WEATHER="${START_WEATHER:-1}"
 START_MONITOR="${START_MONITOR:-0}"
+ENABLE_PROCESS_MONITOR="${ENABLE_PROCESS_MONITOR:-0}"
 EXIT_ON_CRITICAL_FAILURE="${EXIT_ON_CRITICAL_FAILURE:-1}"
 STARTING_OFFSETS="${STARTING_OFFSETS:-latest}"
 STAGING_WARMUP_SECS="${STAGING_WARMUP_SECS:-90}"
+SPEED_LAYER_MAX_FILES_PER_TRIGGER="${SPEED_LAYER_MAX_FILES_PER_TRIGGER:-20}"
+LAMBDA_MAX_FILES_PER_TRIGGER="${LAMBDA_MAX_FILES_PER_TRIGGER:-20}"
+SPEED_LAYER_LATEST_FIRST="${SPEED_LAYER_LATEST_FIRST:-0}"
+LAMBDA_LATEST_FIRST="${LAMBDA_LATEST_FIRST:-0}"
 RESET_KAFKA_VOLUME="${RESET_KAFKA_VOLUME:-0}"
+TAIL_LOGS="${TAIL_LOGS:-0}"
 
 # Port defaults: 8002 because 8000/8001 are commonly occupied on this machine
 API_HOST="${API_HOST:-127.0.0.1}"
@@ -90,6 +98,24 @@ start_bg() {
   printf '%s %s\n' "$pid" "$name" >> "$PID_FILE"
 }
 
+kill_tree() {
+  local pid="$1"
+  if [[ -z "${pid:-}" ]]; then
+    return
+  fi
+  if ! kill -0 "$pid" >/dev/null 2>&1; then
+    return
+  fi
+
+  local children
+  children="$(pgrep -P "$pid" 2>/dev/null || true)"
+  local child
+  for child in $children; do
+    kill_tree "$child"
+  done
+  kill "$pid" >/dev/null 2>&1 || true
+}
+
 print_log_tail() {
   local name="$1"
   local log_file="$LOG_DIR/${name}.log"
@@ -104,10 +130,24 @@ stop_bg() {
     return
   fi
   log "stopping launched processes"
+  if [[ -n "${TAIL_PID:-}" ]]; then
+    kill_tree "$TAIL_PID"
+  fi
+  if [[ -n "${MONITOR_PID:-}" ]]; then
+    kill_tree "$MONITOR_PID"
+  fi
+  while read -r pid name; do
+    if [[ -n "${pid:-}" && "$pid" != "${TAIL_PID:-}" && "$pid" != "${MONITOR_PID:-}" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+      log "stopping $name pid=$pid"
+      kill_tree "$pid"
+    fi
+  done < "$PID_FILE"
+
+  sleep 3
   while read -r pid name; do
     if [[ -n "${pid:-}" ]] && kill -0 "$pid" >/dev/null 2>&1; then
-      log "stopping $name pid=$pid"
-      kill "$pid" >/dev/null 2>&1 || true
+      log "force stopping $name pid=$pid"
+      kill -9 "$pid" >/dev/null 2>&1 || true
     fi
   done < "$PID_FILE"
 }
@@ -127,7 +167,7 @@ monitor_critical() {
             if [[ "$EXIT_ON_CRITICAL_FAILURE" == "1" ]]; then
               log "EXIT_ON_CRITICAL_FAILURE=1; stopping stack"
               stop_bg
-              exit "$status"
+              kill_tree "$$"
             fi
           fi
           ;;
@@ -259,14 +299,24 @@ start_bg trips_consumer    "$PY" -m processing.gtfs_trips_consumer   --starting-
 log "warming staging for ${STAGING_WARMUP_SECS}s before Track B starts"
 sleep "$STAGING_WARMUP_SECS"
 
-start_bg speed_layer "$PY" -m processing.speed_layer_join
+SPEED_LAYER_ARGS=(--max-files-per-trigger "$SPEED_LAYER_MAX_FILES_PER_TRIGGER")
+if [[ "$SPEED_LAYER_LATEST_FIRST" == "1" ]]; then
+  SPEED_LAYER_ARGS+=(--latest-first)
+fi
+start_bg speed_layer "$PY" -m processing.speed_layer_join "${SPEED_LAYER_ARGS[@]}"
 sleep 20
 
-start_bg lambda_merge "$PY" -m processing.lambda_merge \
+LAMBDA_ARGS=(
   --input data/staging/speed_layer_delays \
   --batch-source cassandra \
   --sink mongodb \
-  --mongo-uri "mongodb://127.0.0.1:27017"
+  --mongo-uri "mongodb://127.0.0.1:27017" \
+  --max-files-per-trigger "$LAMBDA_MAX_FILES_PER_TRIGGER"
+)
+if [[ "$LAMBDA_LATEST_FIRST" == "1" ]]; then
+  LAMBDA_ARGS+=(--latest-first)
+fi
+start_bg lambda_merge "$PY" -m processing.lambda_merge "${LAMBDA_ARGS[@]}"
 
 # ---------------------------------------------------------------------------
 # API + Dashboard
@@ -289,11 +339,22 @@ log "  Dashboard: http://127.0.0.1:$DASHBOARD_PORT"
 log "  Logs:      $LOG_DIR"
 log "  PIDs:      $PID_FILE"
 log "  Ctrl+C to stop local processes. Docker containers are left running."
+log "  Set TAIL_LOGS=1 to stream all service logs in this terminal."
+log "  Set ENABLE_PROCESS_MONITOR=1 to stop the stack if a critical job exits."
 
-monitor_critical &
-MONITOR_PID=$!
-printf '%s %s\n' "$MONITOR_PID" process_monitor >> "$PID_FILE"
+if [[ "$ENABLE_PROCESS_MONITOR" == "1" ]]; then
+  monitor_critical &
+  MONITOR_PID=$!
+  printf '%s %s\n' "$MONITOR_PID" process_monitor >> "$PID_FILE"
+fi
 
-tail -f "$LOG_DIR"/*.log &
-TAIL_PID=$!
-wait "$TAIL_PID"
+if [[ "$TAIL_LOGS" == "1" ]]; then
+  tail -f "$LOG_DIR"/*.log &
+  TAIL_PID=$!
+  printf '%s %s\n' "$TAIL_PID" log_tail >> "$PID_FILE"
+  wait "$TAIL_PID"
+else
+  while true; do
+    sleep 3600
+  done
+fi

@@ -14,9 +14,13 @@ db.speed_layer.create_index(
     expireAfterSeconds=86400,
 )
 
-# Compound index — supports the $sort stage in _LATEST_PER_STATION aggregation
+# Compound indexes — support latest-by-event-time dashboard reads while the TTL
+# index continues to retain/expire history by insert time.
 db.speed_layer.create_index(
-    [("station_complex_id", ASCENDING), ("inserted_at", DESCENDING)],
+    [("event_timestamp", DESCENDING), ("inserted_at", DESCENDING)],
+)
+db.speed_layer.create_index(
+    [("station_complex_id", ASCENDING), ("event_timestamp", DESCENDING), ("inserted_at", DESCENDING)],
 )
 
 print(db.speed_layer.index_information())

@@ -23,9 +23,13 @@ _stations_cache: tuple[float, list] | None = None
 _STATIONS_CACHE_TTL = 12.0
 _cache_lock = threading.Lock()
 
-# Latest document per station — used by /stations/all
+# Latest event window per station — used by /stations/all.
+#
+# `inserted_at` is when Lambda wrote the document, not when the subway signal
+# happened. During backlog catch-up, old events can be inserted after newer
+# events, so the dashboard should choose recency by `event_timestamp` first.
 _LATEST_PER_STATION = [
-    {"$sort": {"inserted_at": -1}},
+    {"$sort": {"event_timestamp": -1, "inserted_at": -1}},
     {"$group": {"_id": "$station_complex_id", "doc": {"$first": "$$ROOT"}}},
     {"$replaceRoot": {"newRoot": "$doc"}},
     {"$project": {"_id": 0}},
@@ -35,7 +39,7 @@ _LATEST_PER_STATION = [
 # the already-reduced (latest-per-station) documents, not raw collection docs.
 # Sorted by congestion_score descending for deterministic ordering.
 _ALERTS_PIPELINE = [
-    {"$sort": {"inserted_at": -1}},
+    {"$sort": {"event_timestamp": -1, "inserted_at": -1}},
     {"$group": {"_id": "$station_complex_id", "doc": {"$first": "$$ROOT"}}},
     {"$replaceRoot": {"newRoot": "$doc"}},
     {"$match": {"alert_level": {"$in": ["MODERATE", "SEVERE"]}}},
@@ -85,7 +89,7 @@ def station_congestion(station_id: str):
     doc = col.find_one(
         {"station_complex_id": station_id},
         {"_id": 0},
-        sort=[("inserted_at", -1)],
+        sort=[("event_timestamp", -1), ("inserted_at", -1)],
     )
     if doc is None:
         raise HTTPException(status_code=404, detail=f"No data for station {station_id!r}")

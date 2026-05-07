@@ -102,14 +102,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default=str(SPEED_LAYER_DELAYS_DIR))
     parser.add_argument("--checkpoint", default=str(CHECKPOINT_DIR / "speed_layer_delays"))
     parser.add_argument("--trigger", default="30 seconds")
+    parser.add_argument(
+        "--max-files-per-trigger",
+        type=int,
+        default=None,
+        help="Optional file-source backpressure limit for each staging input.",
+    )
+    parser.add_argument(
+        "--latest-first",
+        action="store_true",
+        help="Process newest staging files first when catching up from an existing backlog.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     spark = get_spark("subway-dash-speed-layer-join")
-    vehicles = spark.readStream.schema(vehicle_schema()).parquet(args.vehicle_input)
-    delays = spark.readStream.schema(trip_delay_schema()).parquet(args.trip_delay_input)
+
+    vehicle_reader = spark.readStream.schema(vehicle_schema())
+    delay_reader = spark.readStream.schema(trip_delay_schema())
+    if args.max_files_per_trigger is not None:
+        vehicle_reader = vehicle_reader.option("maxFilesPerTrigger", args.max_files_per_trigger)
+        delay_reader = delay_reader.option("maxFilesPerTrigger", args.max_files_per_trigger)
+    if args.latest_first:
+        vehicle_reader = vehicle_reader.option("latestFirst", "true")
+        delay_reader = delay_reader.option("latestFirst", "true")
+
+    vehicles = vehicle_reader.parquet(args.vehicle_input)
+    delays = delay_reader.parquet(args.trip_delay_input)
     enriched = build_delay_stream(vehicles, delays)
     Path(args.output).mkdir(parents=True, exist_ok=True)
     query = (
