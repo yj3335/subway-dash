@@ -1,4 +1,4 @@
-"""C7.3 — Dashboard data-loading performance test.
+"""Dashboard data-loading performance test.
 
 Measures the local data operations that run on every Streamlit rerun:
   1. Bridge parquet read + dedup        budget: 300 ms

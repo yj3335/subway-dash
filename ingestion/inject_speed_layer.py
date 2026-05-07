@@ -1,4 +1,4 @@
-"""C6.3 — Inject a synthetic speed_layer document directly into MongoDB.
+"""Inject a synthetic speed_layer document directly into MongoDB.
 
 Used to verify the Streamlit dashboard color-codes markers correctly
 without running the full Kafka → Spark → MongoDB pipeline.

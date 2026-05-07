@@ -1,14 +1,14 @@
-"""Collect staging metrics for the Phase 3 audit.
+"""Collect staging metrics for pipeline auditing.
 
 Reads the staging Parquet directories and produces a JSON metrics dump:
 - staging row counts per topic + per partition date
 - Kafka offset deltas vs. baseline (logs/audit_baseline.txt)
-- partition distribution for vehicle_positions (skew analysis, A8.3)
-- station coverage / null_station_complex_id rate (A4.2)
-- arrival_delay_secs distribution (A5.2 / A-16)
-- top-20 busiest stations (input for skew salting decision A-12)
+- partition distribution for vehicle_positions (skew analysis)
+- station coverage / null_station_complex_id rate
+- arrival_delay_secs distribution
+- top-20 busiest stations (input for skew salting decision)
 
-Usage: python -m scripts.collect_audit > docs/phase3_arjun_audit.md
+Usage: python -m scripts.collect_audit
 """
 from __future__ import annotations
 
