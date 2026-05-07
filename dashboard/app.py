@@ -509,11 +509,11 @@ with tab_hist:
         st.info("No history yet for this station. Data accumulates as the pipeline runs.")
 
 with tab_forecast:
-    now_utc   = datetime.now(timezone.utc)
-    next_hour = (now_utc.hour + 1) % 24
+    now_local = datetime.now()  # system local time — matches how baseline hour_of_day was recorded
+    next_hour = (now_local.hour + 1) % 24
     st.caption(
         f"Expected ridership based on historical baseline (clear weather). "
-        f"Current: **{now_utc.hour:02d}:00** → Next: **{next_hour:02d}:00**"
+        f"Current: **{now_local.hour:02d}:00** → Next: **{next_hour:02d}:00**"
     )
 
     forecast_name = st.selectbox(
@@ -529,14 +529,14 @@ with tab_forecast:
     if baseline_df.empty:
         st.info("Baseline data not yet available. It populates after the first nightly batch run.")
     else:
-        cur_row  = baseline_df[baseline_df["hour_of_day"] == now_utc.hour]["avg_entries"].values
+        cur_row  = baseline_df[baseline_df["hour_of_day"] == now_local.hour]["avg_entries"].values
         next_row = baseline_df[baseline_df["hour_of_day"] == next_hour]["avg_entries"].values
         cur_val  = int(cur_row[0])  if len(cur_row)  else None
         next_val = int(next_row[0]) if len(next_row) else None
 
         fc1, fc2, fc3 = st.columns([1, 1, 2])
         fc1.metric(
-            f"Now ({now_utc.hour:02d}:00)",
+            f"Now ({now_local.hour:02d}:00)",
             f"{cur_val:,}" if cur_val is not None else "—",
         )
         fc2.metric(

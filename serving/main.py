@@ -91,7 +91,8 @@ def station_history(station_id: str, hours: int = 24):
 
 @app.get("/api/v1/station/{station_id}/forecast")
 def station_forecast(station_id: str):
-    now = datetime.now(timezone.utc)
+    # Use local time — baseline hour_of_day was recorded in NYC local time
+    now = datetime.now()
     next_hour = (now.hour + 1) % 24
     # isoweekday(): Mon=1…Sun=7; Cassandra schema uses same convention
     dow = now.isoweekday()
