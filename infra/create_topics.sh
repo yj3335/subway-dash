@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Task A1.2 — Create the final-shape Kafka topics. Idempotent.
+# Create the final-shape Kafka topics. Idempotent.
 # Usage: ./infra/create_topics.sh [bootstrap_server]
 #   default bootstrap = localhost:9092
 set -euo pipefail

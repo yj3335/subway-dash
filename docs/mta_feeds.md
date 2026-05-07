@@ -1,7 +1,7 @@
 # MTA GTFS-Realtime Feed Endpoints
 
-**Task A2.1** — Source-of-truth list of the public MTA GTFS-Realtime URLs used
-by `ingestion/gtfs_producer.py`. The MTA removed the API-key requirement around
+Source-of-truth list of the public MTA GTFS-Realtime URLs used by
+`ingestion/gtfs_producer.py`. The MTA removed the API-key requirement around
 2021, so all endpoints are reachable over plain HTTP GET with a descriptive
 `User-Agent` header.
 

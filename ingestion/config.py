@@ -1,4 +1,4 @@
-"""Shared config for Track A ingestion processes.
+"""Shared config for ingestion processes.
 
 Keeps Kafka bootstrap, topic names, and the route → partition map in one place
 so producers, monitors, and consumers cannot drift.
@@ -17,7 +17,7 @@ TOPIC_WEATHER = "weather-feed"
 
 NUM_PARTITIONS_GTFS = 12
 
-# Route → partition map (Task A2.2). One partition per NYC subway line group.
+# Route → partition map. One partition per NYC subway line group.
 # Unknown routes fall back to hash(route_id) % NUM_PARTITIONS_GTFS so they
 # don't all land on a single overflow bucket.
 ROUTE_PARTITION_MAP: dict[str, int] = {
@@ -50,7 +50,7 @@ def partition_for_route(route_id: str | None) -> int:
     """Return a deterministic partition for a GTFS route_id.
 
     Unknown routes hash uniformly across partitions to avoid hotspotting one
-    overflow bucket (per Task A2.2).
+    overflow bucket.
     """
     if route_id and route_id in ROUTE_PARTITION_MAP:
         return ROUTE_PARTITION_MAP[route_id]

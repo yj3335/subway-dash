@@ -1,4 +1,4 @@
-"""Task A5.1 — PySpark Structured Streaming consumer for `gtfs-trips`.
+"""PySpark Structured Streaming consumer for `gtfs-trips`.
 
 Reads JSON `TripUpdate` records from Kafka, explodes the `stop_time_update`
 array to one row per stop, and resolves `arrival_delay_secs` for every

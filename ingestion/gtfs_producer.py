@@ -1,4 +1,4 @@
-"""Task A2.2 — Live MTA GTFS-Realtime → Kafka producer.
+"""Live MTA GTFS-Realtime → Kafka producer.
 
 Polls all 8 MTA GTFS-Realtime feeds every 15 seconds, deserializes Protobuf
 to flat JSON, and emits one Kafka record per entity. Records are routed to

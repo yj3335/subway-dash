@@ -1,10 +1,8 @@
 # Spark Staging Parquet Schemas
 
-**End-of-Week-4 / End-of-Week-5 handoff** from Track A (Arjun) → Track B (Preyansh).
-
-Track A's PySpark Structured Streaming consumers read from Kafka, parse the
+The PySpark Structured Streaming consumers read from Kafka, parse the
 JSON envelopes produced by `ingestion.gtfs_producer`, and sink Parquet to a
-shared staging directory. Track B's `processing/speed_layer_join.py` reads
+shared staging directory. `processing/speed_layer_join.py` reads
 from these paths — so the column names, types, and semantics below are a
 contract. Any change here must be coordinated.
 
@@ -38,8 +36,8 @@ Producer: [`processing/gtfs_vehicle_consumer.py`](../processing/gtfs_vehicle_con
 | `lat` | double | yes | from bridge | station-complex centroid (not vehicle position) |
 | `lon` | double | yes | from bridge | station-complex centroid (not vehicle position) |
 
-**Validated end-to-end (this PR):** 2,780 rows / 2.6% null `station_complex_id`
-on a ~2-minute live run. Below the 5% escalation threshold in Task A4.2.
+**Validated end-to-end:** 2,780 rows / 2.6% null `station_complex_id`
+on a ~2-minute live run. Below the 5% escalation threshold.
 
 **Important nuance:** `lat`/`lon` come from the **bridge table** (the station
 complex location), not from VehiclePosition. The Protobuf does carry a live
@@ -80,10 +78,9 @@ trip update**, not one row per TripUpdate entity.
 **Critical:** the consumer extracts `arrival.delay` **directly**. Do not
 re-derive `dwell_time = arrival_time_actual − arrival_time_scheduled` —
 GTFS-Realtime does not carry a scheduled timestamp per update, and the delay
-field is already what we want in seconds. This decision is locked in by
-Section 3.3 of the plan.
+field is already what we want in seconds.
 
-**Expected distribution** (per Task A5.2 validation): most `arrival_delay_secs`
+**Expected distribution:** most `arrival_delay_secs`
 values fall in `[-120, +600]`. Outliers > 1800 indicate stale TripUpdates and
 should be flagged but not dropped (the speed-layer averaging absorbs them).
 
@@ -91,10 +88,10 @@ should be flagged but not dropped (the speed-layer averaging absorbs them).
 
 ## `data/staging/speed_layer_delays/`
 
-Producer: `processing/speed_layer_join.py` (Track B — Preyansh, Task B5.1)
+Producer: `processing/speed_layer_join.py`
 
 Listed here because it consumes from the two staging paths above and the
-contract closes at this output. **This is not Track A's writer.**
+contract closes at this output.
 
 | Column | Type | Source |
 |---|---|---|
@@ -102,7 +99,7 @@ contract closes at this output. **This is not Track A's writer.**
 | `event_timestamp` | timestamp | window end (10-min sliding, 30s slide) |
 | `avg_arrival_delay_secs` | double | `avg(arrival_delay_secs)` over the window |
 
-Track B's `lambda_merge.py` then consumes from
+`lambda_merge.py` then consumes from
 `data/staging/speed_layer_delays/` and the Cassandra batch baseline to
 produce the final MongoDB `speed_layer` documents.
 
@@ -115,7 +112,7 @@ produce the final MongoDB `speed_layer` documents.
   configuration. Old partitions can be deleted by removing the date directory.
 - **Schema evolution:** any added column should default-null on read (we use
   `mergeSchema=true` in downstream readers). Removing or renaming a column is
-  a breaking change — coordinate with Track B and rebuild checkpoints.
+  a breaking change — coordinate with downstream consumers and rebuild checkpoints.
 - **Restarting a consumer** picks up from its checkpoint. **Do not delete the
   checkpoint directory** unless you intend a full backfill from
   `--starting-offsets earliest`.

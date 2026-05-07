@@ -185,7 +185,7 @@ def load_station_statuses() -> pd.DataFrame:
         df = pd.DataFrame(docs) if docs else pd.DataFrame()
         if not df.empty:
             st.session_state["last_fetch_ok"] = datetime.now(timezone.utc)
-            # Track alert states for escalation toasts
+            # Remember alert states for escalation toasts
             prev = st.session_state.get("prev_alerts", {})
             curr = dict(zip(df["station_complex_id"], df["alert_level"]))
             for sid, level in curr.items():

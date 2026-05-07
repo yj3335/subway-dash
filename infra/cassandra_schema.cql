@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS subway_dash.current_weather (
     updated_at      TIMESTAMP
 );
 
--- Per-station rain/snow ridership multipliers computed in Week 9.
+-- Per-station rain/snow ridership multipliers.
 -- Separate from current_weather — this is a historical analytics artifact.
 CREATE TABLE IF NOT EXISTS subway_dash.weather_coefficients (
     station_complex_id  TEXT,

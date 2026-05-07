@@ -1,4 +1,4 @@
-"""Task A4.1 — PySpark Structured Streaming consumer for `gtfs-vehicle`.
+"""PySpark Structured Streaming consumer for `gtfs-vehicle`.
 
 Reads JSON records produced by `ingestion.gtfs_producer`, parses the
 VehiclePosition fields, strips the direction suffix from `stop_id`, and

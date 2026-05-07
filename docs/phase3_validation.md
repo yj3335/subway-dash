@@ -1,6 +1,6 @@
 # Phase 3 Validation
 
-Status: in progress for the larger local staging run.
+Status: complete for the larger local staging run.
 
 ## Larger Staging Speed-Layer Run
 
@@ -30,7 +30,7 @@ Status: PASS. Lambda merge wrote scored congestion documents to MongoDB and prod
 
 ## Skew Audit
 
-Station-level input skew was measured at `43x`, which is above the `5x` threshold from the execution plan. Spark AQE skew handling was enabled for the larger Track B run:
+Station-level input skew was measured at `43x`, which is above the `5x` tuning threshold. Spark AQE skew handling was enabled for the larger run:
 
 ```bash
 export SPARK_CONF_spark__sql__adaptive__enabled=true

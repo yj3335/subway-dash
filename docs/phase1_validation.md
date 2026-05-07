@@ -202,7 +202,7 @@ for label, path in {
 PY
 ```
 
-## Phase 1 Track B Handoff
+## Phase 1 Outputs
 
 Ready to hand off:
 

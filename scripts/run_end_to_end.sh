@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # Starts:
 #   Docker infra -> DB init -> optional Cassandra baseline load ->
-#   GTFS/weather producers -> Spark staging consumers -> Track B speed layer ->
+#   GTFS/weather producers -> Spark staging consumers -> speed layer ->
 #   Lambda merge -> FastAPI -> Streamlit
 #
 # Stop with Ctrl+C. The script terminates background processes it launched,
@@ -19,6 +19,8 @@ set -euo pipefail
 #                             (use when data/ridership_weather_baseline is absent)
 #   API_PORT=8003          -- change port if 8002 is occupied
 #   LOAD_BASELINE=0        -- skip baseline loading entirely
+#   CLEAN_PROCESSING_OUTPUTS=0
+#                          -- keep existing generated speed-layer outputs
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -56,7 +58,7 @@ export SPARK_CONF_spark__sql__adaptive__enabled="${SPARK_CONF_spark__sql__adapti
 export SPARK_CONF_spark__sql__adaptive__skewJoin__enabled="${SPARK_CONF_spark__sql__adaptive__skewJoin__enabled:-true}"
 
 LOAD_BASELINE="${LOAD_BASELINE:-1}"
-CLEAN_TRACK_B="${CLEAN_TRACK_B:-1}"
+CLEAN_PROCESSING_OUTPUTS="${CLEAN_PROCESSING_OUTPUTS:-1}"
 START_DASHBOARD="${START_DASHBOARD:-1}"
 START_API="${START_API:-1}"
 START_WEATHER="${START_WEATHER:-1}"
@@ -262,10 +264,10 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Clean Track B outputs
+# Clean generated processing outputs
 # ---------------------------------------------------------------------------
-if [[ "$CLEAN_TRACK_B" == "1" ]]; then
-  log "cleaning Track B generated outputs"
+if [[ "$CLEAN_PROCESSING_OUTPUTS" == "1" ]]; then
+  log "cleaning generated processing outputs"
   rm -rf data/staging/speed_layer_delays checkpoints/speed_layer_delays checkpoints/lambda_merge data/debug/lambda_merge
 fi
 
@@ -291,12 +293,12 @@ if [[ "$START_MONITOR" == "1" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Track B consumers
+# Streaming consumers
 # ---------------------------------------------------------------------------
 start_bg vehicle_consumer "$PY" -m processing.gtfs_vehicle_consumer --starting-offsets "$STARTING_OFFSETS"
 start_bg trips_consumer    "$PY" -m processing.gtfs_trips_consumer   --starting-offsets "$STARTING_OFFSETS"
 
-log "warming staging for ${STAGING_WARMUP_SECS}s before Track B starts"
+log "warming staging for ${STAGING_WARMUP_SECS}s before speed layer starts"
 sleep "$STAGING_WARMUP_SECS"
 
 SPEED_LAYER_ARGS=(--max-files-per-trigger "$SPEED_LAYER_MAX_FILES_PER_TRIGGER")

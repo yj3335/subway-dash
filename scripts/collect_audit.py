@@ -1,4 +1,4 @@
-"""Collect Track A staging metrics for the Phase 3 / Week 8 audit.
+"""Collect staging metrics for the Phase 3 audit.
 
 Reads the staging Parquet directories and produces a JSON metrics dump:
 - staging row counts per topic + per partition date

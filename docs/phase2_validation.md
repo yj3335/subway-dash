@@ -12,7 +12,7 @@ Run after Arjun's staging outputs and the batch baseline are available.
 | `station_complex_id` null rate | `0%` in speed-layer output |
 | Typical `avg_arrival_delay_secs` range | includes early/on-time/late values, sample range `-46.0` to `99.0` seconds |
 
-Status: PASS for a finite local smoke test using the staged parquet inputs from Track A. The production command should use `data/staging/speed_layer_delays/` as output with a persistent checkpoint.
+Status: PASS for a finite local smoke test using the staged parquet inputs. The production command should use `data/staging/speed_layer_delays/` as output with a persistent checkpoint.
 
 ## Lambda Merge Checks
 
@@ -36,7 +36,7 @@ Status: PASS for local parquet sink validation and MongoDB sink validation. The 
 | Dashboard render | PASS: Streamlit dashboard loaded and displayed the MongoDB-backed station state |
 | Synthetic alert sanity check | station `611` / Times Sq-42 St, `alert_level = SEVERE`, `congestion_score = 0.8` |
 
-Status: PASS. Yash's Track C serving/dashboard path is compatible with Track B Lambda output in `subway_dash.speed_layer`.
+Status: PASS. The serving/dashboard path is compatible with Lambda output in `subway_dash.speed_layer`.
 
 ## Threshold Back-Test
 

@@ -49,7 +49,7 @@ pip install -r requirements.txt
 
 The script starts Docker infra, initializes Cassandra/MongoDB, optionally
 loads the Cassandra batch baseline from `data/ridership_weather_baseline/`,
-starts GTFS/weather ingestion, Spark consumers, Track B speed layer, Lambda
+starts GTFS/weather ingestion, Spark consumers, speed layer, Lambda
 merge, FastAPI, and Streamlit. Logs and PIDs are written under
 `logs/e2e_<timestamp>/`. Stop with `Ctrl+C`; Docker containers are left
 running for inspection.
@@ -57,7 +57,7 @@ running for inspection.
 Useful overrides:
 ```bash
 LOAD_BASELINE=0 ./scripts/run_end_to_end.sh
-CLEAN_TRACK_B=0 ./scripts/run_end_to_end.sh
+CLEAN_PROCESSING_OUTPUTS=0 ./scripts/run_end_to_end.sh
 STARTING_OFFSETS=earliest ./scripts/run_end_to_end.sh
 START_DASHBOARD=0 ./scripts/run_end_to_end.sh
 ENABLE_PROCESS_MONITOR=1 ./scripts/run_end_to_end.sh
@@ -87,7 +87,7 @@ python infra/init_mongo.py
 python infra/verify_connections.py
 ```
 
-**4. Start ingestion** (Track A)
+**4. Start ingestion**
 ```bash
 python -m ingestion.gtfs_producer    # live MTA → Kafka, every 15s
 python -m ingestion.weather_poller   # NWS → Cassandra + Kafka, every 15min
@@ -118,13 +118,13 @@ Dashboard available at `http://localhost:8501`.
 
 ## Smoke Tests
 
-**Track A — full pipeline smoke test** (requires Kafka + Spark running):
+**Full pipeline smoke test** (requires Kafka + Spark running):
 ```bash
 python -m ingestion.inject_synthetic_delay --stop-id 127N --delay 600
 ```
 Target end-to-end latency: marker turns yellow/red within 60 seconds.
 
-**Track C — dashboard color test** (no Kafka/Spark needed, just MongoDB + FastAPI):
+**Dashboard color test** (no Kafka/Spark needed, just MongoDB + FastAPI):
 ```bash
 # Inject a SEVERE doc directly into MongoDB speed_layer
 python -m ingestion.inject_speed_layer --station-id 611 --level SEVERE
@@ -133,9 +133,9 @@ Times Sq-42 St marker (station_complex_id 611) turns red within 30 seconds (one 
 
 ---
 
-## Track B Processing Jobs
+## Processing Jobs
 
-Preyansh's processing scripts are CLI-driven and default to local paths under `data/`.
+The processing scripts are CLI-driven and default to local paths under `data/`.
 
 ```bash
 python -m processing.download_datasets --skip-noaa
@@ -166,7 +166,7 @@ All connection settings are read from environment variables:
 |---|---|---|
 | `MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection string |
 | `CASSANDRA_HOSTS` | `localhost` | Comma-separated Cassandra host list |
-| `KAFKA_BOOTSTRAP` | `localhost:9092` | Kafka bootstrap servers (Track A) |
+| `KAFKA_BOOTSTRAP` | `localhost:9092` | Kafka bootstrap servers |
 | `NWS_STATION` | `KNYC` | NWS station for weather poller (Central Park ASOS) |
 | `SUBWAY_DASH_DATA_DIR` | `./data` | Local data dir for Parquet sinks |
 | `SUBWAY_DASH_CHECKPOINT_DIR` | `./checkpoints` | Spark Structured Streaming checkpoints |

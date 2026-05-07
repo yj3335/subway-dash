@@ -1,19 +1,18 @@
-# Track C — Storage, Serving & Dashboard: Design Document
+# Storage, Serving & Dashboard Design
 
-**Owner:** Yash Jain  
-**Last updated:** Week 10
+**Owner:** Storage, serving, and dashboard team
 
 ---
 
-## What Track C owns
+## Scope
 
-Track C is responsible for everything downstream of the processing layer:
+This document covers everything downstream of the processing layer:
 
 - The database schemas (Cassandra + MongoDB)
 - The FastAPI serving layer that sits between the databases and the dashboard
 - The Streamlit dashboard itself
 
-Track A (Arjun) feeds data into Kafka. Track B (Preyansh) runs the PySpark jobs that compute congestion scores and write them to the databases. Track C's job is to make sure the right schemas are there to receive that data, and to surface it to users.
+Live ingestion feeds data into Kafka. PySpark jobs compute congestion scores and write them to the databases. The serving and dashboard layers provide the schemas, APIs, and visualizations that surface that data to users.
 
 ---
 
@@ -23,7 +22,7 @@ Two databases are used deliberately — they serve different access patterns.
 
 ### MongoDB — speed layer (`subway_dash.speed_layer`)
 
-Holds the live congestion documents written by Preyansh's `lambda_merge.py` every 30 seconds.
+Holds the live congestion documents written by `lambda_merge.py` every 30 seconds.
 
 **Why MongoDB here?** The speed layer writes one document per station per micro-batch and the dashboard reads the single latest document per station. MongoDB handles this with a simple `sort + limit 1` query. There's no relational structure, no aggregation across rows — it's a document store used exactly as intended.
 
@@ -33,7 +32,7 @@ See `docs/mongodb_schema.md` for the full field-level spec.
 
 ### Cassandra — batch layer (`subway_dash` keyspace)
 
-Holds the permanent batch views computed by Preyansh's nightly PySpark jobs.
+Holds the permanent batch views computed by PySpark batch jobs.
 
 **Why Cassandra here?** The batch baseline is read in a tight pattern: look up a specific `(station_complex_id, weather_bucket, day_of_week, hour_of_day)` cell. Cassandra's partition key is designed for exactly this — a known key → one row. Read latency is consistently low regardless of table size, which matters for the speed-layer micro-batch that broadcast-joins against this table every 30 seconds.
 
@@ -41,10 +40,10 @@ Holds the permanent batch views computed by Preyansh's nightly PySpark jobs.
 
 | Table | Written by | Read by | Purpose |
 |---|---|---|---|
-| `station_capacity_baseline` | Preyansh (nightly batch) | Speed layer, dashboard forecast | Expected entries per `(station, day, hour, weather)` cell |
-| `station_max_entries` | Preyansh (nightly batch) | Speed layer | Per-station historical peak — denominator for `demand_intensity` normalization |
-| `current_weather` | Arjun (NWS poller, every 15 min) | Speed layer | Single-row table holding current NYC weather bucket. Kept in Cassandra so the speed layer can read it without touching an external API on every micro-batch |
-| `weather_coefficients` | Preyansh (Week 9, one-time) | Analytics report | Historical rain/snow ridership multipliers. Not used at runtime — analytics artifact only |
+| `station_capacity_baseline` | Batch processing | Speed layer, dashboard forecast | Expected entries per `(station, day, hour, weather)` cell |
+| `station_max_entries` | Batch processing | Speed layer | Per-station historical peak — denominator for `demand_intensity` normalization |
+| `current_weather` | NWS poller | Speed layer | Single-row table holding current NYC weather bucket. Kept in Cassandra so the speed layer can read it without touching an external API on every micro-batch |
+| `weather_coefficients` | Batch processing | Analytics report | Historical rain/snow ridership multipliers. Not used at runtime — analytics artifact only |
 
 **Why `station_capacity_baseline` has a composite partition key `(station_complex_id, weather_bucket)`:**  
 Weather bucket is included in the partition key because the two most common query patterns are "give me this station's baseline for clear weather" and "give me this station's baseline for rain". Putting `weather_bucket` in the partition key means each weather variant for a station lives on the same node, avoiding scatter-gather reads across the cluster.
@@ -82,7 +81,7 @@ Start with: `uvicorn serving.main:app --reload`
 
 ## Dashboard (`dashboard/app.py`)
 
-### Current state (Week 10 complete)
+### Current state
 
 - **MTA dark theme:** `.streamlit/config.toml` sets `primaryColor=#0039A6`, `backgroundColor=#0E1117`, matching MTA brand guidelines.
 - **MTA branded header:** Full-width dark-blue header bar with the SUBWAY DASH wordmark.
@@ -101,7 +100,7 @@ Start with: `uvicorn serving.main:app --reload`
 
 ### Why all DB reads go through FastAPI
 
-The design principle from Week 5 is that the dashboard should not query databases directly. All speed-layer reads go through the `/stations/all`, `/station/{id}/congestion`, `/station/{id}/history`, and `/alerts` endpoints. Baseline reads use the `/station/{id}/baseline` endpoint (full 24-hour profile) and `/station/{id}/forecast` (next-hour point estimate). No direct MongoDB or Cassandra calls from the dashboard.
+The dashboard does not query databases directly. All speed-layer reads go through the `/stations/all`, `/station/{id}/congestion`, `/station/{id}/history`, and `/alerts` endpoints. Baseline reads use the `/station/{id}/baseline` endpoint (full 24-hour profile) and `/station/{id}/forecast` (next-hour point estimate). No direct MongoDB or Cassandra calls from the dashboard.
 
 **Why PyDeck?** It renders WebGL maps inside Streamlit with a single function call and supports the `ScatterplotLayer` → `get_fill_color` pattern needed for colored markers. The CARTO dark-matter style is loaded via a direct style URL, keeping the map visually consistent with the MTA dark theme.
 
@@ -136,10 +135,10 @@ Tests the local data operations (parquet read + pandas merge + line extraction) 
 ## How the pieces fit together
 
 ```
-Arjun (Kafka + GTFS producer)
+Kafka + GTFS producer
         │
         ▼
-Preyansh (PySpark batch + speed layer)
+PySpark batch + speed layer
         │                    │
         ▼                    ▼
   Cassandra             MongoDB
@@ -153,7 +152,7 @@ Preyansh (PySpark batch + speed layer)
             Streamlit dashboard
 ```
 
-The Lambda merge (`lambda_merge.py`) is the only writer to MongoDB. Cassandra has two writers: Preyansh's batch jobs write the baseline tables; Arjun's NWS poller writes `current_weather`. Track C is read-only at runtime — it never writes to either database.
+The Lambda merge (`lambda_merge.py`) is the only writer to MongoDB. Cassandra has two writers: batch jobs write the baseline tables, and the NWS poller writes `current_weather`. The dashboard is read-only at runtime; it never writes to either database.
 
 ---
 
@@ -180,21 +179,3 @@ streamlit run dashboard/app.py
 ```
 
 ---
-
-## Completed
-
-| Week | Task |
-|---|---|
-| W8 | ✅ Next-hour forecast widget. ✅ Alert banner (SEVERE only). ✅ Data freshness timestamp. ✅ KPI tiles. ✅ UX audit: sorted table, relative timestamps, `st.tabs`, legend caption, clean error messages. |
-| W9 | ✅ MTA line branding in tooltips (colored HTML badges per official palette). ✅ Pipeline-offline state with "last seen X ago" via `st.session_state`. ✅ System health strip (MongoDB / Cassandra / API). ✅ `st.toast()` escalation notifications. |
-| W10 | ✅ CARTO dark-matter basemap with `pitch=30`. ✅ Exponential radius curve. ✅ Styled KPI cards with colored accents. ✅ Altair threshold reference lines (MODERATE + SEVERE). ✅ MTA dark theme via `.streamlit/config.toml`. ✅ MTA branded header. ✅ `/api/v1/station/{id}/forecast` endpoint. ✅ 12s TTL cache on `/api/v1/stations/all`. ✅ MongoDB compound index for aggregation performance. |
-
-## Remaining
-
-| Task | Blocked on |
-|---|---|
-| 2-hour UAT with full team | Team availability |
-| Cassandra baseline populate | Preyansh: `build_baseline.py --sink cassandra` (parquet delivered, load script ready at `infra/load_baseline_parquet.py`) |
-| Empty-state recovery test (35s) | Full pipeline running |
-| Demo video (cold start → SEVERE → recovery) | Baseline data for forecast demo |
-| Final submission package | All of the above |

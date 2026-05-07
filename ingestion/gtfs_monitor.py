@@ -1,4 +1,4 @@
-"""Task A2.3 — GTFS Kafka monitor.
+"""GTFS Kafka monitor.
 
 Subscribes to all four GTFS topics plus the DLQ and prints a one-line status
 every 60 seconds with messages-per-minute throughput per topic.

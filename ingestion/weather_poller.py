@@ -1,4 +1,4 @@
-"""Task A3.3 — Real-time weather poller (NWS, not NOAA CDO).
+"""Real-time weather poller (NWS, not NOAA CDO).
 
 NOAA CDO publishes historical climate data with 1–3 day latency, which is
 unusable for the speed layer. The live current-weather signal comes from the

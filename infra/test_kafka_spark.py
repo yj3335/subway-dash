@@ -1,4 +1,4 @@
-"""Task A1.3 — Verify Kafka + Spark connectivity.
+"""Verify Kafka + Spark connectivity.
 
 Runs a 10-line PySpark Structured Streaming job that reads from `gtfs-vehicle`
 and prints the count of received messages every 10 seconds. Run for ~2 minutes

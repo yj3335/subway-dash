@@ -1,7 +1,6 @@
 # Kafka Topic Value Schemas
 
-**End-of-Week-5 handoff** from Track A → Track B. This is the wire-format
-contract for every Kafka topic in the pipeline.
+This is the wire-format contract for every Kafka topic in the pipeline.
 
 All values are **UTF-8 JSON** (`json.dumps(...).encode("utf-8")` in the
 producer; `CAST(value AS STRING)` + `from_json(...)` on the Spark side).
@@ -119,7 +118,7 @@ Authoritative parse schema:
 
 One record per Alert entity. 2 partitions; routing follows the same
 `ROUTE_PARTITION_MAP` modulo 2. Currently consumed only by `gtfs_monitor.py`;
-Track C plans to surface alerts in the dashboard banner.
+The dashboard can surface alerts in the banner.
 
 ```json
 {
@@ -167,8 +166,8 @@ Failure envelope. 2 partitions, key = feed name.
 | `received_at` | int (epoch s) | when the producer caught the failure |
 | `raw_b64` | string \| null | base64 of the raw Protobuf payload (null for fetch failures) |
 
-Operator review during Week 3 (Task A3.2): consume the DLQ, categorize
-errors, patch any recurring deserialization issues in the producer.
+Operator review: consume the DLQ, categorize errors, and patch any recurring
+deserialization issues in the producer.
 
 ---
 
@@ -211,5 +210,5 @@ reads Cassandra; `weather-feed` exists for replay/debug.
 | Speed-layer delays | `station_capacity_baseline` (Cassandra, broadcast) | `(station_complex_id, day_of_week, hour_of_day, weather_bucket)` | per micro-batch |
 | Speed-layer delays | `station_max_entries` (Cassandra, broadcast) | `station_complex_id` | per micro-batch |
 
-The first row is Track A's contract output. The second and third rows are
-Track B's `lambda_merge.py` and are listed for context only.
+The first row is the staging contract output. The second and third rows are
+used by `lambda_merge.py` and are listed for context only.

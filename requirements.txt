@@ -8,25 +8,25 @@
 #   connector throws `NoSuchMethodError: scala.Predef$.wrapRefArray(...)`
 #   at startup. Stay on 3.5.x.
 
-# --- Streaming + ingestion (Track A) ---
+# --- Streaming + ingestion ---
 pyspark==3.5.3
 kafka-python==2.0.2
 gtfs-realtime-bindings==2.0.0
 protobuf==5.29.4
 requests==2.32.4
 
-# --- Storage clients (Tracks A + C) ---
+# --- Storage clients ---
 cassandra-driver==3.29.3
 pymongo==4.17.0
 
-# --- Serving + dashboard (Track C) ---
+# --- Serving + dashboard ---
 fastapi==0.136.1
 uvicorn==0.46.0
 streamlit==1.57.0
 streamlit-autorefresh==1.0.1
 pydeck==0.9.1
 
-# --- Data tooling (Tracks B + ad-hoc validation) ---
+# --- Data tooling + ad-hoc validation ---
 pyarrow==24.0.0
 numpy==2.4.4
 pandas==3.0.2

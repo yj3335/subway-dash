@@ -1,2 +1,1 @@
-"""Track B processing jobs for Subway Dash."""
-
+"""Processing jobs for Subway Dash."""

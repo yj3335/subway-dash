@@ -1,9 +1,7 @@
 # Kafka Configuration
 
-**Task A9.3** — Source-of-truth reference for the Kafka topology used by
-Subway Dash. Topic shapes here are the **final** values committed in Week 1
-and are not changed mid-project (recreating a topic invalidates Spark
-checkpoints).
+Source-of-truth reference for the Kafka topology used by Subway Dash. Topic
+shapes are stable because recreating a topic invalidates Spark checkpoints.
 
 ## Cluster
 
@@ -22,7 +20,7 @@ checkpoints).
 |---|---|---|---|---|
 | `gtfs-vehicle` | 12 | 24h delete | `ingestion.gtfs_producer` | `processing.gtfs_vehicle_consumer` |
 | `gtfs-trips` | 12 | 24h delete | `ingestion.gtfs_producer` | `processing.gtfs_trips_consumer` |
-| `gtfs-alerts` | 2 | 24h delete | `ingestion.gtfs_producer` | (Phase 3, dashboard alerts feed) |
+| `gtfs-alerts` | 2 | 24h delete | `ingestion.gtfs_producer` | dashboard alerts feed |
 | `gtfs-dlq` | 2 | 24h delete | `ingestion.gtfs_producer`, `ingestion.weather_poller` | `ingestion.gtfs_monitor` (operator review) |
 | `weather-feed` | 1 | **compact** | `ingestion.weather_poller` | replay/debug only |
 
@@ -49,8 +47,8 @@ get their own partition rather than sharing one.
 | 11 | (overflow / null route_id) |
 
 Unknown routes fall back to `hash(route_id) % 12` (not the overflow bucket) so
-they distribute uniformly. The audit in Task A6.1 confirms
-`max_partition / median_partition ≤ 3` under rush-hour load. If a single
+they distribute uniformly. Validation confirms `max_partition / median_partition ≤ 3`
+under rush-hour load. If a single
 partition exceeds 40% of total traffic, split the dominant group rather than
 recreating the topic.
 
@@ -59,11 +57,11 @@ The `gtfs-alerts` topic uses 2 partitions; the producer applies
 
 ## Consumer groups
 
-| Group ID / prefix | Topic(s) | Owner | Visible in `--list`? |
+| Group ID / prefix | Topic(s) | Consumer | Visible in `--list`? |
 |---|---|---|---|
-| `gtfs-monitor` | all GTFS topics + DLQ | Track A — `gtfs_monitor.py` | yes |
-| `spark-vehicle-consumer-<uuid>` | `gtfs-vehicle` | Track A — `gtfs_vehicle_consumer.py` | **no** (see below) |
-| `spark-trips-consumer-<uuid>` | `gtfs-trips` | Track A — `gtfs_trips_consumer.py` | **no** (see below) |
+| `gtfs-monitor` | all GTFS topics + DLQ | `gtfs_monitor.py` | yes |
+| `spark-vehicle-consumer-<uuid>` | `gtfs-vehicle` | `gtfs_vehicle_consumer.py` | **no** (see below) |
+| `spark-trips-consumer-<uuid>` | `gtfs-trips` | `gtfs_trips_consumer.py` | **no** (see below) |
 
 **Important — Spark Structured Streaming's Kafka source does not join a Kafka
 consumer group.** It uses the partition-assignment API directly and manages
@@ -97,13 +95,13 @@ directory with the same job across restarts so it resumes cleanly.
 | Setting | Default | Tuning notes |
 |---|---|---|
 | `startingOffsets` | `latest` | Use `earliest` only for replay/backfill |
-| `maxOffsetsPerTrigger` | 5,000 | Backpressure during burst; tuned in Task A8.1 |
+| `maxOffsetsPerTrigger` | 5,000 | Backpressure during burst |
 | `trigger(processingTime=...)` | 30s | Matches dashboard refresh cadence |
 | `failOnDataLoss` | true | Catches misconfigured offset resets |
 
-`maxOffsetsPerTrigger = 5000` is the starting estimate from Assumption A-11.
-Task A8.1 measures actual records-per-second during a 4-hour rush-hour window
-and adjusts up if LAG grows monotonically.
+`maxOffsetsPerTrigger = 5000` is the starting estimate. Measure actual
+records-per-second during rush-hour windows and adjust up if LAG grows
+monotonically.
 
 ## DLQ semantics
 
@@ -123,9 +121,8 @@ Each DLQ message has the shape:
 }
 ```
 
-The Week 3 DLQ review (Task A3.2) categorizes recurring errors and either
-patches the producer (for fixable parse errors) or marks them as documented
-non-blocking edge cases.
+DLQ review categorizes recurring errors and either patches the producer
+(for fixable parse errors) or marks them as documented non-blocking edge cases.
 
 ## Operations
 

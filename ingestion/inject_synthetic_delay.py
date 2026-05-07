@@ -1,7 +1,7 @@
-"""Task A7.1 — Synthetic delay injector for the end-to-end smoke test.
+"""Synthetic delay injector for the end-to-end smoke test.
 
 Publishes one fake TripUpdate-shaped JSON message to `gtfs-trips` for a
-chosen stop with a configurable arrival delay. Used in Task A7.2 to confirm
+chosen stop with a configurable arrival delay. Used to confirm
 the marker on the Streamlit map turns yellow/red within 60 seconds.
 
 Run:
