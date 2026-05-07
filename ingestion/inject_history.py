@@ -80,7 +80,7 @@ def main() -> int:
             "predicted_delay_mins": round(delay / 60, 2),
             "alert_level":          _alert_level(score),
             "weather_bucket":       "clear",
-            "inserted_at":          ts,
+            "inserted_at":          now,  # wall-clock time so TTL monitor doesn't expire historical docs immediately
         })
 
     col.insert_many(docs)
