@@ -43,6 +43,7 @@ START_DASHBOARD="${START_DASHBOARD:-1}"
 START_API="${START_API:-1}"
 START_WEATHER="${START_WEATHER:-1}"
 START_MONITOR="${START_MONITOR:-0}"
+EXIT_ON_CRITICAL_FAILURE="${EXIT_ON_CRITICAL_FAILURE:-1}"
 STARTING_OFFSETS="${STARTING_OFFSETS:-latest}"
 STAGING_WARMUP_SECS="${STAGING_WARMUP_SECS:-90}"
 API_HOST="${API_HOST:-0.0.0.0}"
@@ -67,6 +68,15 @@ start_bg() {
   printf '%s %s\n' "$pid" "$name" >> "$PID_FILE"
 }
 
+print_log_tail() {
+  local name="$1"
+  local log_file="$LOG_DIR/${name}.log"
+  if [[ -f "$log_file" ]]; then
+    log "last 80 lines from $log_file"
+    tail -80 "$log_file" || true
+  fi
+}
+
 stop_bg() {
   if [[ ! -f "$PID_FILE" ]]; then
     return
@@ -78,6 +88,30 @@ stop_bg() {
       kill "$pid" >/dev/null 2>&1 || true
     fi
   done < "$PID_FILE"
+}
+
+monitor_critical() {
+  local status=0
+  local pid name
+  while true; do
+    sleep 10
+    while read -r pid name; do
+      case "$name" in
+        vehicle_consumer|trips_consumer|speed_layer|lambda_merge)
+          if [[ -n "${pid:-}" ]] && ! kill -0 "$pid" >/dev/null 2>&1; then
+            wait "$pid" >/dev/null 2>&1 || status=$?
+            log "critical process exited: $name pid=$pid status=$status"
+            print_log_tail "$name"
+            if [[ "$EXIT_ON_CRITICAL_FAILURE" == "1" ]]; then
+              log "EXIT_ON_CRITICAL_FAILURE=1; stopping stack"
+              stop_bg
+              exit "$status"
+            fi
+          fi
+          ;;
+      esac
+    done < "$PID_FILE"
+  done
 }
 
 wait_for_cassandra() {
@@ -193,4 +227,10 @@ log "Dashboard: http://localhost:$DASHBOARD_PORT"
 log "PID file:  $PID_FILE"
 log "Use Ctrl+C to stop launched local processes. Docker containers are left running."
 
-tail -f "$LOG_DIR"/*.log
+monitor_critical &
+MONITOR_PID=$!
+printf '%s %s\n' "$MONITOR_PID" process_monitor >> "$PID_FILE"
+
+tail -f "$LOG_DIR"/*.log &
+TAIL_PID=$!
+wait "$TAIL_PID"
