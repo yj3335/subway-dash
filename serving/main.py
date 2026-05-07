@@ -1,21 +1,29 @@
 from __future__ import annotations
 
-import os
+import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from serving.db_clients import get_cassandra_session, get_mongo_collection
+from serving.db_clients import (
+    close_connections,
+    get_cassandra_session,
+    get_mongo_collection,
+    reset_cassandra_session,
+)
 
-app = FastAPI(title="Subway Dash API")
+_NYC = ZoneInfo("America/New_York")
 
 _stations_cache: tuple[float, list] | None = None
-_STATIONS_CACHE_TTL = 12.0  # seconds
+_STATIONS_CACHE_TTL = 12.0
+_cache_lock = threading.Lock()
 
-# Aggregation pipeline: latest document per station_complex_id
+# Latest document per station — used by /stations/all
 _LATEST_PER_STATION = [
     {"$sort": {"inserted_at": -1}},
     {"$group": {"_id": "$station_complex_id", "doc": {"$first": "$$ROOT"}}},
@@ -23,9 +31,30 @@ _LATEST_PER_STATION = [
     {"$project": {"_id": 0}},
 ]
 
+# Alerts pipeline — $match placed after $replaceRoot so it sees alert_level on
+# the already-reduced (latest-per-station) documents, not raw collection docs.
+# Sorted by congestion_score descending for deterministic ordering.
+_ALERTS_PIPELINE = [
+    {"$sort": {"inserted_at": -1}},
+    {"$group": {"_id": "$station_complex_id", "doc": {"$first": "$$ROOT"}}},
+    {"$replaceRoot": {"newRoot": "$doc"}},
+    {"$match": {"alert_level": {"$in": ["MODERATE", "SEVERE"]}}},
+    {"$sort": {"congestion_score": -1}},
+    {"$project": {"_id": 0}},
+]
+
 
 def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     return {k: v.isoformat() if isinstance(v, datetime) else v for k, v in doc.items()}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    close_connections()
+
+
+app = FastAPI(title="Subway Dash API", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -67,16 +96,17 @@ def station_congestion(station_id: str):
 def stations_all():
     global _stations_cache
     now = time.monotonic()
-    if _stations_cache and (now - _stations_cache[0]) < _STATIONS_CACHE_TTL:
-        return _stations_cache[1]
-    col = get_mongo_collection("speed_layer")
-    docs = [_serialize(d) for d in col.aggregate(_LATEST_PER_STATION)]
-    _stations_cache = (now, docs)
-    return docs
+    with _cache_lock:
+        if _stations_cache and (now - _stations_cache[0]) < _STATIONS_CACHE_TTL:
+            return _stations_cache[1]
+        col = get_mongo_collection("speed_layer")
+        docs = [_serialize(d) for d in col.aggregate(_LATEST_PER_STATION, allowDiskUse=True)]
+        _stations_cache = (now, docs)
+        return docs
 
 
 @app.get("/api/v1/station/{station_id}/history")
-def station_history(station_id: str, hours: int = 24):
+def station_history(station_id: str, hours: int = Query(default=24, ge=1, le=48)):
     col = get_mongo_collection("speed_layer")
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     docs = list(
@@ -91,10 +121,9 @@ def station_history(station_id: str, hours: int = 24):
 
 @app.get("/api/v1/station/{station_id}/forecast")
 def station_forecast(station_id: str):
-    # Use local time — baseline hour_of_day was recorded in NYC local time
-    now = datetime.now()
+    # Use NYC local time — baseline hour_of_day was recorded in NYC local time
+    now = datetime.now(_NYC)
     next_hour = (now.hour + 1) % 24
-    # isoweekday(): Mon=1…Sun=7; Cassandra schema uses same convention
     dow = now.isoweekday()
     try:
         session = get_cassandra_session()
@@ -105,6 +134,7 @@ def station_forecast(station_id: str):
             (station_id, dow, next_hour),
         ).one()
     except Exception as exc:
+        reset_cassandra_session()
         raise HTTPException(status_code=503, detail=f"Cassandra unavailable: {exc}")
     if row is None:
         raise HTTPException(status_code=404, detail=f"No baseline for station {station_id!r}")
@@ -129,6 +159,7 @@ def station_baseline(station_id: str, weather_bucket: str = "clear"):
             (station_id, weather_bucket),
         )
     except Exception as exc:
+        reset_cassandra_session()
         raise HTTPException(status_code=503, detail=f"Cassandra unavailable: {exc}")
     result = [{"hour_of_day": r.hour_of_day, "avg_entries": r.avg_entries} for r in rows]
     if not result:
@@ -136,12 +167,8 @@ def station_baseline(station_id: str, weather_bucket: str = "clear"):
     return result
 
 
-
 @app.get("/api/v1/alerts")
 def alerts():
     col = get_mongo_collection("speed_layer")
-    pipeline = _LATEST_PER_STATION + [
-        {"$match": {"alert_level": {"$in": ["MODERATE", "SEVERE"]}}}
-    ]
-    docs = [_serialize(d) for d in col.aggregate(pipeline)]
+    docs = [_serialize(d) for d in col.aggregate(_ALERTS_PIPELINE, allowDiskUse=True)]
     return docs

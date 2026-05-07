@@ -25,6 +25,18 @@ def get_cassandra_session():
     return _cassandra_session
 
 
+def reset_cassandra_session():
+    """Force reconnect on the next get_cassandra_session() call."""
+    global _cassandra_cluster, _cassandra_session
+    _cassandra_session = None
+    if _cassandra_cluster:
+        try:
+            _cassandra_cluster.shutdown()
+        except Exception:
+            pass
+        _cassandra_cluster = None
+
+
 def close_connections():
     global _mongo_client, _cassandra_cluster, _cassandra_session
     if _mongo_client:

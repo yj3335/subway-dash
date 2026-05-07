@@ -3,6 +3,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # Streamlit adds the script directory (dashboard/) to sys.path, not the project
 # root. Insert the root explicitly so processing.* and serving.* are importable.
@@ -20,6 +21,7 @@ from streamlit_autorefresh import st_autorefresh
 from processing.config import BRIDGE_PARQUET
 
 API_URL = os.environ.get("SUBWAY_DASH_API_URL", "http://localhost:8000")
+_NYC = ZoneInfo("America/New_York")
 
 # ---------------------------------------------------------------------------
 # MTA brand colors
@@ -119,7 +121,7 @@ def _freshness_str(statuses_df: pd.DataFrame) -> tuple[str, bool]:
 # Cached loaders
 # ---------------------------------------------------------------------------
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_stations() -> pd.DataFrame:
     df = pd.read_parquet(
         BRIDGE_PARQUET,
@@ -178,7 +180,8 @@ def load_station_statuses() -> pd.DataFrame:
                     st.toast(f"🔴 {name} escalated to SEVERE", icon="🚨")
             st.session_state["prev_alerts"] = curr
         return df
-    except Exception:
+    except Exception as exc:
+        st.session_state["last_api_error"] = str(exc)
         return pd.DataFrame()
 
 
@@ -281,12 +284,13 @@ def _system_health_strip():
     try:
         resp = requests.get(f"{API_URL}/health", timeout=3)
         h = resp.json()
+        api_ok       = resp.status_code == 200
         mongo_ok     = h.get("mongo") == "ok"
         cassandra_ok = h.get("cassandra") == "ok"
         parts = [
             f"{'🟢' if mongo_ok else '🔴'} MongoDB",
             f"{'🟢' if cassandra_ok else '🔴'} Cassandra",
-            f"🟢 API",
+            f"{'🟢' if api_ok else '🟡'} API",
         ]
         st.caption("  ·  ".join(parts))
     except Exception:
@@ -323,6 +327,9 @@ with st.sidebar:
             st.error(f"⚠ Pipeline offline\nLast data: {ago}")
         else:
             st.warning("⚠ Waiting for data…")
+        err = st.session_state.get("last_api_error", "")
+        if err:
+            st.caption(f"Last error: {err[:120]}")
     elif is_stale:
         st.warning(f"⚠ Data may be stale\n{freshness_label}")
     else:
@@ -509,11 +516,11 @@ with tab_hist:
         st.info("No history yet for this station. Data accumulates as the pipeline runs.")
 
 with tab_forecast:
-    now_local = datetime.now()  # system local time — matches how baseline hour_of_day was recorded
+    now_local = datetime.now(_NYC)  # NYC local time — matches how baseline hour_of_day was recorded
     next_hour = (now_local.hour + 1) % 24
     st.caption(
         f"Expected ridership based on historical baseline (clear weather). "
-        f"Current: **{now_local.hour:02d}:00** → Next: **{next_hour:02d}:00**"
+        f"Current: **{now_local.hour:02d}:00** → Next: **{next_hour:02d}:00** (NYC time)"
     )
 
     forecast_name = st.selectbox(
@@ -531,8 +538,8 @@ with tab_forecast:
     else:
         cur_row  = baseline_df[baseline_df["hour_of_day"] == now_local.hour]["avg_entries"].values
         next_row = baseline_df[baseline_df["hour_of_day"] == next_hour]["avg_entries"].values
-        cur_val  = int(cur_row[0])  if len(cur_row)  else None
-        next_val = int(next_row[0]) if len(next_row) else None
+        cur_val  = int(cur_row[0])  if len(cur_row)  and pd.notna(cur_row[0])  else None
+        next_val = int(next_row[0]) if len(next_row) and pd.notna(next_row[0]) else None
 
         fc1, fc2, fc3 = st.columns([1, 1, 2])
         fc1.metric(
