@@ -121,14 +121,29 @@ def _freshness_str(statuses_df: pd.DataFrame) -> tuple[str, bool]:
 # Cached loaders
 # ---------------------------------------------------------------------------
 
+def _merge_routes(series) -> str | None:
+    tokens: set[str] = set()
+    for val in series.dropna():
+        tokens.update(str(val).split())
+    return " ".join(sorted(tokens)) if tokens else None
+
+
 @st.cache_data(ttl=3600)
 def load_stations() -> pd.DataFrame:
     df = pd.read_parquet(
         BRIDGE_PARQUET,
         columns=["station_complex_id", "complex_name", "lat", "lon", "daytime_routes"],
     )
-    df = df.drop_duplicates("station_complex_id")
-    return df.rename(columns={"complex_name": "name"})
+    # Aggregate all route tokens across every stop that shares a complex ID.
+    # drop_duplicates would silently discard routes that only appear on some stops
+    # (e.g. Atlantic Av-Barclays Ctr serves A/C/2/3/4/5/B/D/N/Q/R across many rows).
+    agg = df.groupby("station_complex_id", as_index=False).agg(
+        complex_name=("complex_name", "first"),
+        lat=("lat", "mean"),
+        lon=("lon", "mean"),
+        daytime_routes=("daytime_routes", _merge_routes),
+    )
+    return agg.rename(columns={"complex_name": "name"})
 
 
 @st.cache_data
