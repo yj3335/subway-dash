@@ -438,6 +438,19 @@ st.caption(
 # ---------------------------------------------------------------------------
 
 st.subheader("Station Congestion Status")
+
+with st.expander("ℹ️ How scores are calculated"):
+    st.markdown("""
+| Field | Meaning |
+|---|---|
+| **Congestion Score** | `service_deficit × demand_intensity` — a 0–1 index combining train reliability and passenger load |
+| **Service Deficit** | How late trains are, normalised: `0` = on time, `1` = fully saturated (arrival delay ≥ 300 s) |
+| **Demand Intensity** | Station entries relative to its historical peak: `actual entries ÷ max recorded entries` |
+| **Avg Arrival Delay** | Mean seconds trains sat at this station beyond their scheduled arrival in the last window |
+| **Crowding label** | Quiet < 0.05 · Moderate 0.05–0.20 · Busy 0.20–0.50 · Very Busy ≥ 0.50 |
+| **Alert level** | 🟢 NORMAL < 0.20 · 🟡 MODERATE 0.20–0.50 · 🔴 SEVERE ≥ 0.50 |
+""")
+
 if statuses.empty:
     st.info("No live data yet. The feed populates automatically once the pipeline is running.")
 else:
@@ -451,9 +464,10 @@ else:
     display["crowding"] = display["congestion_score"].apply(_crowding_label)
     display["delay"] = display["avg_arrival_delay_secs"].apply(_delay_label)
     display["Status"] = display["alert_level"].map(lambda s: _BADGE.get(s, s))
-    display = display[["complex_name", "Status", "crowding", "delay",
+    display["score_fmt"] = display["congestion_score"].apply(lambda x: f"{x:.3f}" if pd.notna(x) else "—")
+    display = display[["complex_name", "Status", "score_fmt", "crowding", "delay",
                        "event_timestamp", "weather_bucket"]]
-    display.columns = ["Station", "Status", "Crowding", "Delay", "Updated", "Weather"]
+    display.columns = ["Station", "Status", "Score", "Crowding", "Delay", "Updated", "Weather"]
     st.dataframe(
         display,
         width="stretch",
@@ -486,10 +500,11 @@ with tab_hist:
 
     if hist_docs:
         hist_df = pd.DataFrame(hist_docs)
-        hist_df["event_timestamp"] = pd.to_datetime(hist_df["event_timestamp"])
+        # Parse as UTC so Vega-Lite converts to browser local time for display
+        hist_df["event_timestamp"] = pd.to_datetime(hist_df["event_timestamp"], utc=True)
         hist_df = hist_df.set_index("event_timestamp").sort_index()
         st.altair_chart(_history_altair(hist_df), width="stretch")
-        st.caption("— — Dashed orange = MODERATE threshold (0.20)  ·  Dashed red = SEVERE threshold (0.50)")
+        st.caption("— — Dashed orange = MODERATE threshold (0.20)  ·  Dashed red = SEVERE threshold (0.50)  ·  Times shown in your local timezone")
     else:
         st.info("No history yet for this station. Data accumulates as the pipeline runs.")
 
