@@ -206,9 +206,9 @@ PY
 
 Ready to hand off:
 
-- `data/bridge/station_bridge.parquet/` to Arjun and Yash
-- `data/ridership/clean/` for any teammate reruns of batch baseline work
-- `data/weather/clean/` for any teammate reruns of weather bucket baseline work
+- `data/bridge/station_bridge.parquet/`
+- `data/ridership/clean/` for batch baseline reruns
+- `data/weather/clean/` for weather bucket baseline reruns
 - `data/ridership_weather_baseline/` for Phase 2 baseline and analytics work
 - `data/batch/station_capacity_baseline/` for local speed-layer baseline lookup testing
 - `data/batch/station_max_entries/` for local demand intensity normalization testing

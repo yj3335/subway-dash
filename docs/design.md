@@ -1,9 +1,5 @@
 # Storage, Serving & Dashboard Design
 
-**Owner:** Storage, serving, and dashboard team
-
----
-
 ## Scope
 
 This document covers everything downstream of the processing layer:

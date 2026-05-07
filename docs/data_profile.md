@@ -1,6 +1,6 @@
 # Data Profiling Results
 
-## `/Users/preyansh/Documents/Big Data/subway-dash/data/raw/stops.txt`
+## `data/raw/stops.txt`
 
 - Rows: `1488`
 - Columns: `stop_id, stop_name, stop_lat, stop_lon, location_type, parent_station`
@@ -32,7 +32,7 @@
 - `{'stop_id': '103', 'stop_name': '238 St', 'stop_lat': '40.884667', 'stop_lon': '-73.900870', 'location_type': '1', 'parent_station': ''}`
 - `{'stop_id': '103N', 'stop_name': '238 St', 'stop_lat': '40.884667', 'stop_lon': '-73.900870', 'location_type': '', 'parent_station': '103'}`
 
-## `/Users/preyansh/Documents/Big Data/subway-dash/data/raw/MTA_Stations.csv`
+## `data/raw/MTA_Stations.csv`
 
 - Rows: `496`
 - Columns: `GTFS Stop ID, Station ID, Complex ID, Division, Line, Stop Name, Borough, CBD, Daytime Routes, Structure, GTFS Latitude, GTFS Longitude, North Direction Label, South Direction Label, ADA, ADA Northbound, ADA Southbound, ADA Notes, Georeference`
@@ -81,7 +81,7 @@
 - `{'GTFS Stop ID': '254', 'Station ID': '349', 'Complex ID': '349', 'Division': 'IRT', 'Line': 'Eastern Pky', 'Stop Name': 'Junius St', 'Borough': 'Bk', 'CBD': 'false', 'Daytime Routes': '3', 'Structure': 'Elevated', 'GTFS Latitude': '40.663515', 'GTFS Longitude': '-73.902447', 'North Direction Label': 'Manhattan', 'South Direction Label': 'New Lots', 'ADA': '0', 'ADA Northbound': '0', 'ADA Southbound': '0', 'ADA Notes': '', 'Georeference': 'POINT (-73.902447 40.663515)'}`
 - `{'GTFS Stop ID': 'M01', 'Station ID': '108', 'Complex ID': '108', 'Division': 'BMT', 'Line': 'Myrtle Av', 'Stop Name': 'Middle Village-Metropolitan Av', 'Borough': 'Q', 'CBD': 'false', 'Daytime Routes': 'M', 'Structure': 'Elevated', 'GTFS Latitude': '40.711396', 'GTFS Longitude': '-73.889601', 'North Direction Label': 'Inbound', 'South Direction Label': 'Last Stop', 'ADA': '1', 'ADA Northbound': '1', 'ADA Southbound': '1', 'ADA Notes': '', 'Georeference': 'POINT (-73.889601 40.711396)'}`
 
-## `/Users/preyansh/Documents/Big Data/subway-dash/data/raw/MTA_Hourly_Ridership_Beginning_2025.csv`
+## `data/raw/MTA_Hourly_Ridership_Beginning_2025.csv`
 
 - Rows: `37097502`
 - Columns: `transit_timestamp, transit_mode, station_complex_id, station_complex, borough, payment_method, fare_class_category, ridership, transfers, latitude, longitude, Georeference`
@@ -118,7 +118,7 @@
 - `{'transit_timestamp': '05/23/2025 12:00:00 AM', 'transit_mode': 'subway', 'station_complex_id': '152', 'station_complex': '135 St (C,B)', 'borough': 'Manhattan', 'payment_method': 'omny', 'fare_class_category': 'OMNY - Students', 'ridership': '3', 'transfers': '0', 'latitude': '40.817894', 'longitude': '-73.94765', 'Georeference': 'POINT (-73.94765 40.817894)'}`
 - `{'transit_timestamp': '05/23/2025 12:00:00 AM', 'transit_mode': 'subway', 'station_complex_id': '17', 'station_complex': 'Prince St (R,W)', 'borough': 'Manhattan', 'payment_method': 'metrocard', 'fare_class_category': 'Metrocard - Full Fare', 'ridership': '5', 'transfers': '0', 'latitude': '40.72433', 'longitude': '-73.9977', 'Georeference': 'POINT (-73.9977 40.72433)'}`
 
-## `/Users/preyansh/Documents/Big Data/subway-dash/data/raw/noaa_weather.csv`
+## `data/raw/noaa_weather.csv`
 
 - Rows: `477`
 - Columns: `DATE, PRCP, SNOW, TMAX, TMIN`
