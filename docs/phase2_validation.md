@@ -1,6 +1,6 @@
 # Phase 2 Validation
 
-Run after Arjun's staging outputs and the batch baseline are available.
+Run after staging outputs and the batch baseline are available.
 
 ## Speed-Layer Join Checks
 

@@ -4,15 +4,6 @@ Real-time MTA subway congestion pipeline and live dashboard.
 
 Ingests live GTFS-Realtime feeds, computes per-station congestion scores using a Lambda architecture, and surfaces them on an interactive map.
 
-**Team**
-| Member | Role |
-|---|---|
-| Arjun Bajpai | Data Ingestion & Infrastructure |
-| Preyansh Agrawal | Processing, Joins & Prediction |
-| Yash Jain | Storage, Serving Layer & Visualization |
-
----
-
 ## Stack
 
 | Layer | Technology |

@@ -8,7 +8,7 @@ Reads the staging Parquet directories and produces a JSON metrics dump:
 - arrival_delay_secs distribution (A5.2 / A-16)
 - top-20 busiest stations (input for skew salting decision A-12)
 
-Usage: python -m scripts.collect_audit > docs/phase3_arjun_audit.md
+Usage: python -m scripts.collect_audit > logs/audit_metrics.json
 """
 from __future__ import annotations
 
