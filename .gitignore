@@ -23,3 +23,7 @@ logs/e2e_*/
 # subdirectories are portable on their own (read with PyArrow/Pandas, or
 # `spark.read.parquet("data/staging/vehicle_positions/event_date=*")`).
 **/_spark_metadata/
+# Runtime logs
+logs/
+# Generated schedule lookups (rebuild with scripts/build_schedule_lookup.py)
+data/schedule/*.parquet
